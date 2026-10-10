@@ -8,7 +8,7 @@ import ctypes
 import time
 from typing import Optional, Tuple
 
-from .base_input import BaseInputController, InputLevel
+from .base_input import BaseInputController, InputLevel, MOUSE_MOVE_SETTLE_DELAY
 
 
 VK_CODE_MAP = {
@@ -390,6 +390,7 @@ class DDVirtualInput(BaseInputController):
 
         if position:
             self.mouse_move(position, relative=False)
+            time.sleep(MOUSE_MOVE_SETTLE_DELAY)
 
         if action == "press":
             self.mouse_down(button)

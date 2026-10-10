@@ -8,7 +8,7 @@ import threading
 import time
 from typing import Optional, Tuple
 
-from .base_input import BaseInputController, InputLevel
+from .base_input import BaseInputController, InputLevel, MOUSE_MOVE_SETTLE_DELAY
 
 
 def _get_input_method_from_settings() -> str:
@@ -117,7 +117,8 @@ class PyAutoGUIInput(BaseInputController):
         try:
             if position:
                 pyautogui.moveTo(position[0], position[1])
-            
+                time.sleep(MOUSE_MOVE_SETTLE_DELAY)
+
             if action == "press":
                 if duration > 0:
                     pyautogui.mouseDown(button=button)

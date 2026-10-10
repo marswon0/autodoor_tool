@@ -2,7 +2,7 @@ from bt_core.nodes import ConditionNode
 from bt_core.config import NodeConfig
 from typing import Dict, Any, Tuple, Optional
 from bt_utils.ocr_manager import OCRManager
-from bt_nodes.conditions.common import LANGUAGE_MAP, PREPROCESS_MODE_MAP
+from bt_nodes.conditions.common import PREPROCESS_MODE_MAP
 
 
 class NumberConditionNode(ConditionNode):
@@ -26,8 +26,6 @@ class NumberConditionNode(ConditionNode):
             search_direction = self.config.get("search_direction", "左上")
             direction = SearchDirection.VALUE_MAP.get(search_direction, SearchDirection.TOP_LEFT)
 
-            language_display = self.config.get("language", "简体中文")
-            language = LANGUAGE_MAP.get(language_display, "chi_sim")
             preprocess_display = self.config.get("preprocess_mode", "默认")
             preprocess_mode = PREPROCESS_MODE_MAP.get(preprocess_display, "normal")
             extract_mode = self.config.get("extract_mode", "无规则")
@@ -36,7 +34,6 @@ class NumberConditionNode(ConditionNode):
 
             success, value, all_text, position = OCRManager().recognize_number_with_position(
                 screenshot,
-                language=language,
                 preprocess_mode=preprocess_mode,
                 extract_mode=extract_mode,
                 extract_pattern=extract_pattern,

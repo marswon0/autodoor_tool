@@ -3,7 +3,7 @@ from bt_core.config import NodeConfig
 from typing import Dict, Any, Tuple, Optional
 from bt_utils.log_manager import LogManager
 from bt_utils.ocr_manager import OCRManager
-from bt_nodes.conditions.common import LANGUAGE_MAP, PREPROCESS_MODE_MAP
+from bt_nodes.conditions.common import PREPROCESS_MODE_MAP
 
 
 EXTRACT_MODE_MAP = {
@@ -16,6 +16,8 @@ EXTRACT_MODE_MAP = {
 
 class TextExtractNode(ConditionNode):
     NODE_TYPE = "TextExtractNode"
+    REGION_MODE_DEFAULT = "dynamic"
+    REGION_USE_LAST_POS_DEFAULT = False
 
     def __init__(self, node_id: str = None, config: NodeConfig = None):
         super().__init__(node_id, config)
@@ -26,15 +28,13 @@ class TextExtractNode(ConditionNode):
             if screenshot is None:
                 return False
 
-            language_display = self.config.get("language", "简体中文")
-            language = LANGUAGE_MAP.get(language_display, "chi_sim")
             preprocess_display = self.config.get("preprocess_mode", "默认")
             preprocess_mode = PREPROCESS_MODE_MAP.get(preprocess_display, "normal")
 
             # BUG-02 修复：使用 recognize_with_boxes 一次调用同时获取文本和位置
             ocr_manager = OCRManager()
             boxes_result = ocr_manager.recognize_with_boxes(
-                screenshot, language=language, preprocess_mode=preprocess_mode
+                screenshot, preprocess_mode=preprocess_mode
             )
 
             if not boxes_result:

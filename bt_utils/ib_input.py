@@ -40,7 +40,7 @@ import time
 from typing import Optional, Tuple
 from contextlib import contextmanager
 
-from .base_input import BaseInputController, InputLevel
+from .base_input import BaseInputController, InputLevel, MOUSE_MOVE_SETTLE_DELAY
 from .dd_input import VK_CODE_MAP
 from .log_manager import LogManager
 
@@ -477,6 +477,7 @@ class IbInputSimulatorInput(BaseInputController):
             # 获取归一化坐标（移动事件需要）
             if position:
                 self._move_to(position)
+                time.sleep(MOUSE_MOVE_SETTLE_DELAY)
                 norm_x, norm_y = self._normalize_position(position)
             else:
                 # 无指定位置时，获取当前光标位置

@@ -90,5 +90,37 @@ def get_window_dpi_scale(hwnd):
             return dpi / 96.0
     except Exception:
         pass
-    
+
+    return get_dpi_scale()
+
+
+def get_point_dpi_scale(x: int, y: int):
+    """获取屏幕坐标所在显示器的DPI缩放比例
+
+    Args:
+        x: 屏幕绝对坐标X
+        y: 屏幕绝对坐标Y
+
+    Returns:
+        float: DPI缩放比例，获取失败时返回主显示器缩放比例
+    """
+    if sys.platform != 'win32':
+        return 1.0
+
+    try:
+        from ctypes import wintypes
+        monitor_from_point = ctypes.windll.user32.MonitorFromPoint
+        monitor_from_point.argtypes = [wintypes.POINT, wintypes.DWORD]
+        monitor_from_point.restype = wintypes.HMONITOR
+        hmonitor = monitor_from_point(wintypes.POINT(int(x), int(y)), 2)  # MONITOR_DEFAULTTONEAREST
+
+        dpi_x = ctypes.c_uint()
+        dpi_y = ctypes.c_uint()
+        # MDT_EFFECTIVE_DPI = 0
+        if hmonitor and ctypes.windll.shcore.GetDpiForMonitor(
+                hmonitor, 0, ctypes.byref(dpi_x), ctypes.byref(dpi_y)) == 0 and dpi_x.value > 0:
+            return dpi_x.value / 96.0
+    except Exception:
+        pass
+
     return get_dpi_scale()

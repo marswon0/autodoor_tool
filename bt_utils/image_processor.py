@@ -60,6 +60,121 @@ class ImageProcessor:
 
         return False, None, max_val
 
+    # 模板PNG中记录截图时显示器缩放比例的文本字段（可选，旧模板没有）
+    TEMPLATE_SCALE_KEY = "autodoor_dpi_scale"
+
+    @staticmethod
+    def save_template(image: Image.Image, path: str, capture_scale: Optional[float] = None) -> None:
+        """保存模板图像，可选在PNG内记录截图时的显示器缩放比例"""
+        if capture_scale and path.lower().endswith(".png"):
+            from PIL.PngImagePlugin import PngInfo
+            info = PngInfo()
+            info.add_text(ImageProcessor.TEMPLATE_SCALE_KEY, f"{capture_scale:g}")
+            image.save(path, pnginfo=info)
+        else:
+            image.save(path)
+
+    @staticmethod
+    def read_template_scale(image: Image.Image) -> Optional[float]:
+        """读取模板记录的截图缩放比例，没有记录或无效时返回None"""
+        try:
+            value = float(image.info.get(ImageProcessor.TEMPLATE_SCALE_KEY, ""))
+            return value if value > 0 else None
+        except (TypeError, ValueError):
+            return None
+
+    @staticmethod
+    def scale_template(template: Image.Image, factor: float) -> Image.Image:
+        """按比例缩放模板（factor≈1 时原样返回）"""
+        if abs(factor - 1.0) < 0.01:
+            return template
+        size = (max(1, round(template.width * factor)), max(1, round(template.height * factor)))
+        return template.resize(size, Image.LANCZOS)
+
+    # 颜色校验：最多校验的形状候选数（形状相似、颜色不同的多个目标，如勾选/未勾选的复选框）
+    COLOR_CHECK_MAX_CANDIDATES = 20
+    # Lab 色度（√(a²+b²)）超过该值视为"有颜色"的像素
+    COLOR_CHECK_CHROMA_MIN = 15.0
+
+    @staticmethod
+    def find_template_with_color(source: Image.Image, template: Image.Image,
+                                 threshold: float = 0.8,
+                                 color_threshold: float = 85.0
+                                 ) -> Tuple[bool, Optional[Tuple[int, int]], float, Optional[float]]:
+        """模板匹配 + 颜色校验（形状与颜色两个阈值需同时满足）
+
+        按形状置信度从高到低逐个检查形状达标（>= threshold）的位置，
+        返回第一个颜色相似度 >= color_threshold 的位置（即颜色达标中形状最好的）。
+
+        颜色相似度 = 100 - 平均色差ΔE（CIELAB，下限0）。平均只统计模板或截图中"有颜色"的像素，
+        避免小面积颜色变化被大面积白色/灰色背景稀释；两者都几乎无颜色时统计全部像素。
+
+        Args:
+            source: 源图像
+            template: 模板图像
+            threshold: 形状匹配阈值 (0~1)
+            color_threshold: 颜色相似度阈值 (0~100)
+
+        Returns:
+            (是否找到, 中心位置, 最高形状置信度, 形状达标候选中的最高颜色相似度) 元组；
+            没有形状达标的候选时颜色相似度为 None
+        """
+        source_rgb = np.array(source.convert("RGB"))
+        template_rgb = np.array(template.convert("RGB"))
+
+        sh, sw = source_rgb.shape[:2]
+        th, tw = template_rgb.shape[:2]
+        if sh < th or sw < tw:
+            return False, None, 0.0, None
+
+        source_gray = cv2.cvtColor(source_rgb, cv2.COLOR_RGB2GRAY)
+        template_gray = cv2.cvtColor(template_rgb, cv2.COLOR_RGB2GRAY)
+        result = cv2.matchTemplate(source_gray, template_gray, cv2.TM_CCOEFF_NORMED)
+        _, best_shape, _, _ = cv2.minMaxLoc(result)
+
+        template_lab = ImageProcessor._to_lab(template_rgb)
+        best_color = None
+
+        # minMaxLoc 每次取剩余最高分，候选按形状置信度从高到低
+        for _ in range(ImageProcessor.COLOR_CHECK_MAX_CANDIDATES):
+            _, shape_val, _, (x, y) = cv2.minMaxLoc(result)
+            if shape_val < threshold:
+                break
+
+            patch_lab = ImageProcessor._to_lab(source_rgb[y:y + th, x:x + tw])
+            color_score = ImageProcessor._color_similarity(template_lab, patch_lab)
+            if color_score >= color_threshold:
+                return True, (x + tw // 2, y + th // 2), best_shape, color_score
+            if best_color is None or color_score > best_color:
+                best_color = color_score
+
+            # 抑制该候选附近区域，避免同一目标被重复选中
+            x1, y1 = max(0, x - tw // 2), max(0, y - th // 2)
+            result[y1:y + th // 2 + 1, x1:x + tw // 2 + 1] = -1.0
+
+        return False, None, best_shape, best_color
+
+    @staticmethod
+    def _to_lab(rgb: np.ndarray) -> np.ndarray:
+        """RGB(uint8) → CIELAB(float32，L 0~100)"""
+        return cv2.cvtColor(rgb.astype(np.float32) / 255.0, cv2.COLOR_RGB2Lab)
+
+    @staticmethod
+    def _color_similarity(template_lab: np.ndarray, patch_lab: np.ndarray) -> float:
+        """颜色相似度 (0~100) = 100 - 平均ΔE76，只统计模板或截图中有颜色的像素"""
+        delta_e = np.sqrt(np.sum((template_lab - patch_lab) ** 2, axis=2))
+
+        chroma_t = np.hypot(template_lab[:, :, 1], template_lab[:, :, 2])
+        chroma_p = np.hypot(patch_lab[:, :, 1], patch_lab[:, :, 2])
+        mask = (chroma_t > ImageProcessor.COLOR_CHECK_CHROMA_MIN) | (chroma_p > ImageProcessor.COLOR_CHECK_CHROMA_MIN)
+        # 有颜色的像素太少（灰白图标）时，统计全部像素
+        if np.count_nonzero(mask) < max(20, int(mask.size * 0.02)):
+            mean_delta = float(np.mean(delta_e))
+        else:
+            mean_delta = float(np.mean(delta_e[mask]))
+
+        return max(0.0, 100.0 - mean_delta)
+
     @staticmethod
     def find_color(source: Image.Image, target_color: Tuple[int, int, int],
                    tolerance: int = 10, match_mode: str = "any",

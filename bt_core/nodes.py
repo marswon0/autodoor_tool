@@ -1083,33 +1083,39 @@ class ConditionNode(Node):
     # 差异截图：无region时的默认检测区域半径
     _DEFAULT_REGION_RADIUS = 150
 
+    # 区域选择方式未保存时的默认值（子类可覆盖，需与属性面板默认值一致）
+    REGION_MODE_DEFAULT = "fixed"
+
+    def _get_region_mode(self) -> str:
+        """区域选择方式；未保存时取 REGION_MODE_DEFAULT。
+        兼容旧节点：未保存区域选择方式但已框选检测区域的，按固定区域处理"""
+        mode = self.config.get("region_mode", None)
+        if mode:
+            return mode
+        if self._parse_region(self.config.get("region", None)) is not None:
+            return "fixed"
+        return self.REGION_MODE_DEFAULT
+
     def _get_region_image(self, context):
         try:
-            region_mode = self.config.get("region_mode", "fixed")
-            if region_mode == "dynamic":
-                region = self._resolve_dynamic_region(context)
-            else:
-                region = self._parse_region(self.config.get("region", None))
-
-            # 差异截图优化：无region时尝试使用上次检测位置附近的区域
-            if region is None:
-                region = self._get_fallback_region(context)
-
-            return context.get_screenshot(region)
+            return context.get_screenshot(self._get_effective_region(context))
         except Exception as e:
             from bt_utils.exception_handler import log_exception
             log_exception(e, f"{self.NODE_TYPE} '{self.name}' 截图失败")
             return None
 
     def _get_effective_region(self, context):
-        region_mode = self.config.get("region_mode", "fixed")
-        if region_mode == "dynamic":
+        """检测区域 (x1,y1,x2,y2)；返回 None 表示整屏（绑定窗口时为整个窗口）
+
+        动态区域无锚点时整屏检测，不回退到上次检测位置附近。
+        """
+        if self._get_region_mode() == "dynamic":
             return self._resolve_dynamic_region(context)
-        else:
-            region = self._parse_region(self.config.get("region", None))
-            if region is None:
-                region = self._get_fallback_region(context)
-            return region
+        region = self._parse_region(self.config.get("region", None))
+        if region is None:
+            # 差异截图优化：固定区域未框选时尝试使用上次检测位置附近的区域
+            region = self._get_fallback_region(context)
+        return region
 
     def _get_fallback_region(self, context):
         """当未配置region时，尝试使用上次检测位置附近的区域作为回退
@@ -1131,12 +1137,21 @@ class ConditionNode(Node):
         r = self._DEFAULT_REGION_RADIUS
         return (max(0, cx - r), max(0, cy - r), cx + r, cy + r)
 
+    # 动态区域"锚点设置最近检测点"未保存时的默认值（子类可覆盖，需与属性面板默认值一致）
+    REGION_USE_LAST_POS_DEFAULT = True
+
     def _resolve_dynamic_region(self, context):
-        use_last_pos = self.config.get_bool("region_use_last_pos", True)
+        """动态区域：以锚点为中心叠加区域偏移量；无锚点时返回 None（整屏检测）
+
+        未勾选"锚点设置最近检测点"且位置变量名为空时没有锚点，不使用上次检测位置。
+        """
+        use_last_pos = self.config.get_bool("region_use_last_pos", self.REGION_USE_LAST_POS_DEFAULT)
         if use_last_pos:
             anchor_key = "last_detection_position"
         else:
-            anchor_key = self.config.get("region_anchor", "") or "last_detection_position"
+            anchor_key = str(self.config.get("region_anchor", "") or "").strip()
+            if not anchor_key:
+                return None
 
         pos = context.blackboard.get(anchor_key)
         if pos is None or not isinstance(pos, (tuple, list)) or len(pos) < 2:

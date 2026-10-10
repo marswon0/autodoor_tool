@@ -415,7 +415,21 @@ class BehaviorTreeApp(ctk.CTk):
         for key, callback in shortcuts:
             self.bind(key, lambda e, cb=callback, k=key: self._handle_shortcut(e, cb, k))
     
+    # 运行期间屏蔽的编辑快捷键：节点执行时模拟的按键（如文本输入的 Ctrl+V、
+    # 按键节点的 BackSpace）若落到编辑器窗口，会被当作编辑操作改动画布
+    _EDIT_SHORTCUTS_BLOCKED_WHILE_RUNNING = (
+        "<Control-z>", "<Control-y>", "<Control-Shift-Z>",
+        "<Control-o>", "<Control-n>",
+        "<Delete>", "<BackSpace>",
+        "<Control-c>", "<Control-v>", "<Control-x>", "<Control-d>",
+    )
+
     def _handle_shortcut(self, event, callback, key_name):
+        if key_name in self._EDIT_SHORTCUTS_BLOCKED_WHILE_RUNNING:
+            is_running = getattr(self.behavior_tree, 'is_any_tree_running', None)
+            if callable(is_running) and is_running():
+                return "break"
+
         if key_name in ("<Delete>", "<BackSpace>"):
             if self._keyfield_active:
                 return "break"

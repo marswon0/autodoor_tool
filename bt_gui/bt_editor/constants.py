@@ -64,7 +64,7 @@ NODE_DESCRIPTIONS = {
     "ColorConditionNode": "检测颜色值",
     "NumberConditionNode": "比较数值大小",
     "VariableConditionNode": "判断变量值",
-    "TextExtractNode": "从指定区域提取文本",
+    "TextExtractNode": "读取文字，建议先用图像匹配定位",
     "KeyPressNode": "模拟键盘按键",
     "MouseClickNode": "模拟鼠标点击",
     "MouseMoveNode": "移动鼠标位置",
@@ -120,7 +120,7 @@ def build_node_categories(theme_colors: dict) -> dict:
                 ("ColorConditionNode", "颜色检测", "检测颜色值"),
                 ("NumberConditionNode", "数字比较", "比较数值大小"),
                 ("VariableConditionNode", "变量判断", "判断变量值"),
-                ("TextExtractNode", "文本提取", "从指定区域提取文本"),
+                ("TextExtractNode", "文本提取", "读取文字，建议先用图像匹配定位"),
             ]
         },
         "动作节点": {

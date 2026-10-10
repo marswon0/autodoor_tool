@@ -4,6 +4,7 @@ from typing import Tuple, Optional, Dict, Any
 from dataclasses import dataclass
 from collections import OrderedDict
 import numpy as np
+import math
 import re
 import time
 import hashlib
@@ -697,7 +698,7 @@ class OCRManager:
 
     def recognize_with_boxes(self, image: Image.Image, language: str = "eng",
                              preprocess_mode: str = "normal",
-                             use_cache: bool = True) -> Optional[list]:
+                             use_cache: bool = False) -> Optional[list]:
         """执行OCR识别并返回带文本框的原始结果
 
         Args:
@@ -749,7 +750,7 @@ class OCRManager:
                   preprocess_mode: str = "normal",
                   region: Tuple[int, int, int, int] = None,
                   search_direction: str = "top-left",
-                  use_cache: bool = True) -> Tuple[bool, Optional[Tuple[int, int]], str]:
+                  use_cache: bool = False) -> Tuple[bool, Optional[Tuple[int, int]], str]:
         """执行OCR识别
 
         Args:
@@ -845,6 +846,196 @@ class OCRManager:
             _logger.error(f"OCR识别异常: {e}", exc_info=True)
             return False, None, ""
 
+    # 全屏两阶段搜索参数
+    # 文本块定位：先用 OpenCV 找出文字所在的外接矩形，再逐块识别。
+    # 原固定网格分块会把跨越分块边界的文本行切断，导致整行识别错误（如"购物"被识别为"勿"）；
+    # 按文本块裁剪则不会切断任何文字，且空白区域不参与识别。
+    # 闭运算核 (宽, 高)：把同一行内相邻字符连成一个文本块
+    FULL_SEARCH_BLOCK_KERNEL = (15, 5)
+    # 小于该高度的连通块视为噪点，不送去识别
+    FULL_SEARCH_MIN_BLOCK_HEIGHT = 6
+    # 裁剪文本块时四周留出的边距，避免字符贴边影响检测
+    FULL_SEARCH_BLOCK_PADDING = 8
+    # 超大文本块的分块最大边长：RapidOCR 检测模型输入越宽效果越差，
+    # 超过该尺寸的文本块再按重叠网格切分（见 _iter_tiles），正常界面很少出现
+    FULL_SEARCH_TILE_SIZE = 1920
+    # 超大文本块分块重叠
+    FULL_SEARCH_TILE_OVERLAP = 160
+    # 模糊匹配阈值（关键词与文本片段的相似度），仅用于挑选候选区域，最终由第二阶段确认
+    FULL_SEARCH_FUZZY_THRESHOLD = 0.75
+    FULL_SEARCH_MAX_FUZZY_CANDIDATES = 5
+    # 第二阶段裁剪时在候选文本框四周留出的边距
+    FULL_SEARCH_CONFIRM_PADDING = 40
+
+    def search_full_screen(self, image: Image.Image, keywords: str,
+                           language: str = "eng",
+                           preprocess_mode: str = "normal",
+                           search_direction: str = "top-left") -> Tuple[bool, Optional[Tuple[int, int]], str]:
+        """全屏两阶段搜索关键词（先粗找，再放大确认）
+
+        第一阶段：用 OpenCV 定位文本块（见 _find_text_blocks），逐块裁剪后不做预处理直接识别，
+            既避免大图被引擎缩小导致小字丢失，也不会把文字切成两半。
+            文本中直接包含关键词 → 命中；与关键词近似 → 记为候选。
+        第二阶段：对候选文本框裁剪出小区域，按用户选择的预处理模式重新识别确认。
+
+        Args:
+            image: 整屏/整窗口截图
+            keywords: 关键词（逗号分隔），不能为空
+            language: OCR语言
+            preprocess_mode: 第二阶段确认使用的预处理模式
+            search_direction: 识别起点 (top-left/top-right/bottom-left/bottom-right)
+
+        Returns:
+            (是否找到, 位置坐标, 所有识别文本) 元组，与 recognize 相同；
+            位置坐标为 image 内坐标（无需再叠加区域偏移）
+        """
+        try:
+            if not self._available or self._engine is None:
+                return False, None, ""
+
+            keyword_list = [k.strip().lower() for k in keywords.split(",") if k.strip()]
+            if not keyword_list:
+                return False, None, ""
+
+            rgb = image.convert("RGB")
+            all_texts = []
+            matches = []
+            fuzzy_candidates = []  # (相似度, 文本框外接矩形)
+
+            # 第一阶段：逐个文本块粗找
+            for tx, ty, tx2, ty2 in self._iter_block_crops(rgb):
+                tile = rgb.crop((tx, ty, tx2, ty2))
+                result = self._engine(np.array(tile))
+                if result is None or result.boxes is None or len(result.boxes) == 0:
+                    continue
+
+                for i, text in enumerate(result.txts):
+                    if not text or i >= len(result.boxes):
+                        continue
+                    all_texts.append(text)
+                    box = result.boxes[i]
+                    text_lower = text.lower()
+
+                    exact = False
+                    for keyword in keyword_list:
+                        if keyword in text_lower:
+                            x, y = calculate_keyword_position(text, keyword, box)
+                            matches.append((x + tx, y + ty))
+                            exact = True
+
+                    if not exact:
+                        score = max(self._fuzzy_score(text_lower, kw) for kw in keyword_list)
+                        if score >= self.FULL_SEARCH_FUZZY_THRESHOLD:
+                            xs = [p[0] for p in box]
+                            ys = [p[1] for p in box]
+                            rect = (int(min(xs)) + tx, int(min(ys)) + ty,
+                                    int(max(xs)) + tx, int(max(ys)) + ty)
+                            fuzzy_candidates.append((score, rect))
+
+            # 第二阶段：仅在没有直接命中时，放大确认近似候选
+            if not matches and fuzzy_candidates:
+                fuzzy_candidates.sort(key=lambda c: -c[0])
+                confirmed_rects = []
+                for _, rect in fuzzy_candidates:
+                    if len(confirmed_rects) >= self.FULL_SEARCH_MAX_FUZZY_CANDIDATES:
+                        break
+                    # 分块重叠会让同一文本出现两次，跳过已确认过的区域
+                    if any(self._rects_overlap(rect, r) for r in confirmed_rects):
+                        continue
+                    confirmed_rects.append(rect)
+
+                    crop_box = self._padded_crop_box(rect, rgb.size)
+                    found, position, _ = self.recognize(
+                        rgb.crop(crop_box), keywords, language,
+                        preprocess_mode=preprocess_mode,
+                        search_direction=search_direction
+                    )
+                    if found and position:
+                        matches.append((position[0] + crop_box[0], position[1] + crop_box[1]))
+
+            all_text = " ".join(all_texts)
+            if not matches:
+                return False, None, all_text
+
+            from bt_utils.direction import sort_positions_by_direction
+            sorted_matches = sort_positions_by_direction(matches, search_direction)
+            return True, sorted_matches[0], all_text
+
+        except Exception as e:
+            _logger.error(f"OCR全屏搜索异常: {e}", exc_info=True)
+            return False, None, ""
+
+    def _find_text_blocks(self, image: Image.Image) -> list:
+        """用 OpenCV 定位图中的文本块，返回外接矩形列表 [(x, y, w, h), ...]
+
+        形态学梯度突出文字边缘 → Otsu 二值化 → 闭运算把同一行的字符连成块 → 取外部轮廓的外接矩形。
+        图标、图片等非文字区域也会产生文本块，识别结果为空即可，不做过滤。
+        """
+        gray = cv2.cvtColor(np.array(image), cv2.COLOR_RGB2GRAY)
+        grad = cv2.morphologyEx(gray, cv2.MORPH_GRADIENT, np.ones((3, 3), np.uint8))
+        _, binary = cv2.threshold(grad, 0, 255, cv2.THRESH_BINARY | cv2.THRESH_OTSU)
+        kernel = cv2.getStructuringElement(cv2.MORPH_RECT, self.FULL_SEARCH_BLOCK_KERNEL)
+        binary = cv2.morphologyEx(binary, cv2.MORPH_CLOSE, kernel)
+        contours, _ = cv2.findContours(binary, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        rects = [cv2.boundingRect(c) for c in contours]
+        return [r for r in rects if r[3] >= self.FULL_SEARCH_MIN_BLOCK_HEIGHT]
+
+    def _iter_block_crops(self, image: Image.Image):
+        """生成第一阶段的裁剪区域 (x1, y1, x2, y2)：每个文本块外扩边距并限制在图像范围内；
+        超过 FULL_SEARCH_TILE_SIZE 的超大文本块再切成重叠分块"""
+        width, height = image.size
+        pad = self.FULL_SEARCH_BLOCK_PADDING
+        for x, y, w, h in self._find_text_blocks(image):
+            x1, y1 = max(0, x - pad), max(0, y - pad)
+            x2, y2 = min(width, x + w + pad), min(height, y + h + pad)
+            for tx1, ty1, tx2, ty2 in self._iter_tiles((x2 - x1, y2 - y1)):
+                yield (x1 + tx1, y1 + ty1, x1 + tx2, y1 + ty2)
+
+    def _iter_tiles(self, size: Tuple[int, int]):
+        """生成覆盖整图的重叠分块 (x1, y1, x2, y2)
+
+        每个方向取最少的分块数（分块不超过 FULL_SEARCH_TILE_SIZE），再均分分块尺寸，
+        相邻分块重叠至少 FULL_SEARCH_TILE_OVERLAP，首尾分块贴齐边缘。
+        """
+        max_tile = self.FULL_SEARCH_TILE_SIZE
+        overlap = self.FULL_SEARCH_TILE_OVERLAP
+
+        def spans(length):
+            if length <= max_tile:
+                return [(0, length)]
+            count = math.ceil((length - overlap) / (max_tile - overlap))
+            tile = math.ceil((length + (count - 1) * overlap) / count)
+            step = (length - tile) / (count - 1)
+            return [(round(i * step), round(i * step) + tile) for i in range(count)]
+
+        for y1, y2 in spans(size[1]):
+            for x1, x2 in spans(size[0]):
+                yield (x1, y1, x2, y2)
+
+    @staticmethod
+    def _fuzzy_score(text: str, keyword: str) -> float:
+        """关键词与文本中等长片段的最高相似度；短关键词（≤2字符）不做模糊匹配"""
+        import difflib
+        if len(keyword) <= 2 or not text:
+            return 0.0
+        n = len(keyword)
+        if len(text) <= n:
+            return difflib.SequenceMatcher(None, text, keyword).ratio()
+        return max(difflib.SequenceMatcher(None, text[i:i + n], keyword).ratio()
+                   for i in range(len(text) - n + 1))
+
+    @staticmethod
+    def _rects_overlap(a: Tuple[int, int, int, int], b: Tuple[int, int, int, int]) -> bool:
+        return a[0] < b[2] and b[0] < a[2] and a[1] < b[3] and b[1] < a[3]
+
+    def _padded_crop_box(self, rect: Tuple[int, int, int, int],
+                         size: Tuple[int, int]) -> Tuple[int, int, int, int]:
+        """候选文本框外扩边距（至少一个文本框高度），并限制在图像范围内"""
+        x1, y1, x2, y2 = rect
+        pad = max(self.FULL_SEARCH_CONFIRM_PADDING, y2 - y1)
+        return (max(0, x1 - pad), max(0, y1 - pad),
+                min(size[0], x2 + pad), min(size[1], y2 + pad))
+
     def recognize_number(self, image: Image.Image, language: str = "eng",
                          preprocess_mode: str = "normal",
                          extract_mode: str = "无规则",
@@ -872,7 +1063,7 @@ class OCRManager:
                                         extract_pattern: str = "",
                                         min_confidence: float = 0.5,
                                         search_direction: str = "top-left",
-                                        use_cache: bool = True) -> Tuple[bool, Optional[float], str, Optional[Tuple[int, int]]]:
+                                        use_cache: bool = False) -> Tuple[bool, Optional[float], str, Optional[Tuple[int, int]]]:
         """识别数字（带位置）
 
         Args:
@@ -1016,7 +1207,7 @@ class OCRManager:
     def get_all_text(self, image: Image.Image, language: str = "eng",
                      preprocess_mode: str = "normal",
                      psm: int = None, oem: int = None,
-                     use_cache: bool = True) -> str:
+                     use_cache: bool = False) -> str:
         """获取所有识别文本
 
         返回值使用换行符分隔各文本行，以便调用方按行处理。

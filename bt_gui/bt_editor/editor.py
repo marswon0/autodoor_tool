@@ -149,7 +149,7 @@ class BehaviorTreeEditor(ctk.CTkFrame):
             self._fallback_project_manager = None
             self._update_title("未命名")
             self.toolbar.set_project_path(None)
-            self.toolbar.set_running(False)
+            self._refresh_run_buttons()
     
     def _handle_tab_run(self, tab_id: str, skip_sound: bool = False) -> bool:
         instance = self.tab_manager.get_tab(tab_id)
@@ -473,7 +473,8 @@ class BehaviorTreeEditor(ctk.CTkFrame):
             on_redo=self.redo,
             on_clear=lambda: self.clear_canvas(confirm=True),
             on_reset_view=self.reset_view,
-            on_start=self._start_running,
+            on_start=self._start_active_tab,
+            on_start_all=self._start_running,
             on_stop=self._stop_running,
             on_open_folder=self._open_project_folder
         )
@@ -767,7 +768,15 @@ class BehaviorTreeEditor(ctk.CTkFrame):
             node_config = {
                 "duration_ms": 1000
             }
-        
+        elif node_type == "MouseClickNode":
+            node_config = {
+                "use_blackboard": True
+            }
+        elif node_type == "ImageConditionNode":
+            node_config = {
+                "retry_count": 3
+            }
+
         command = AddNodeCommand(
             canvas=self.canvas,
             node_id=node_id,
@@ -1771,20 +1780,39 @@ class BehaviorTreeEditor(ctk.CTkFrame):
         except Exception as e:
             messagebox.showerror("错误", f"无法打开文件夹: {str(e)}")
     
+    def _start_active_tab(self):
+        """只运行当前Tab的行为树（工具栏"▶ 开始"）"""
+        active = self.tab_manager.get_active_tab()
+        if active and not active.is_running:
+            self._handle_tab_run(active.tab_id)
+        self._refresh_run_buttons()
+
     def _start_running(self):
-        if self._is_running:
-            return
-        
-        started_count = 0
+        """运行所有已打开Tab中未在运行的行为树（工具栏"⏩ 全部开始"、开始快捷键）"""
         for tab_id in list(self.tab_manager._trees.keys()):
             instance = self.tab_manager.get_tab(tab_id)
             if instance and not instance.is_running:
                 self._handle_tab_run(tab_id)
-                started_count += 1
-        
-        if started_count > 0:
-            self._is_running = True
-            self.toolbar.set_running(True)
+
+        self._refresh_run_buttons()
+
+    def is_any_tree_running(self) -> bool:
+        """是否有任一Tab的行为树正在运行（实时查询，不依赖 _is_running 缓存）"""
+        return any(getattr(inst, 'is_running', False)
+                   for inst in list(self.tab_manager._trees.values()))
+
+    def _refresh_run_buttons(self):
+        """按各Tab运行状态刷新工具栏运行按钮"""
+        instances = list(self.tab_manager._trees.values())
+        active = self.tab_manager.get_active_tab()
+        any_running = any(inst.is_running for inst in instances)
+        all_running = bool(instances) and all(inst.is_running for inst in instances)
+        self._is_running = any_running
+        self.toolbar.set_run_state(
+            active_running=bool(active and active.is_running),
+            any_running=any_running,
+            all_running=all_running
+        )
 
     def _stop_running(self):
         # ★ 通知DD输入控制器停止所有操作
@@ -1800,9 +1828,8 @@ class BehaviorTreeEditor(ctk.CTkFrame):
             if instance and instance.is_running:
                 self._handle_tab_stop(tab_id)
                 stopped_count += 1
-        
-        self._is_running = False
-        self.toolbar.set_running(False)
+
+        self._refresh_run_buttons()
     
     def _play_start_sound(self):
         try:
@@ -2047,7 +2074,7 @@ class BehaviorTreeEditor(ctk.CTkFrame):
         
         self._update_title(instance.name)
         self.toolbar.set_project_path(instance.project_root)
-        self.toolbar.set_running(instance.is_running)
+        self._refresh_run_buttons()
         
         if instance.command_manager:
             self.toolbar.update_undo_redo(
@@ -2057,15 +2084,7 @@ class BehaviorTreeEditor(ctk.CTkFrame):
     
     def _on_tab_status_changed(self, tab_id: str, running: bool):
         self.tab_bar.set_running(tab_id, running)
-        
-        any_running = False
-        for tid, inst in self.tab_manager._trees.items():
-            if inst.is_running:
-                any_running = True
-                break
-        
-        self._is_running = any_running
-        self.toolbar.set_running(any_running)
+        self._refresh_run_buttons()
     
     def _on_tab_removed(self, tab_id: str):
         """Tab 移除回调"""

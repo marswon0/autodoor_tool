@@ -20,6 +20,7 @@ class EditorToolbar(ctk.CTkFrame):
         on_clear: Optional[Callable] = None,
         on_reset_view: Optional[Callable] = None,
         on_start: Optional[Callable] = None,
+        on_start_all: Optional[Callable] = None,
         on_stop: Optional[Callable] = None,
         on_open_folder: Optional[Callable] = None,
         **kwargs
@@ -36,6 +37,7 @@ class EditorToolbar(ctk.CTkFrame):
         self.on_clear = on_clear
         self.on_reset_view = on_reset_view
         self.on_start = on_start
+        self.on_start_all = on_start_all
         self.on_stop = on_stop
         self.on_open_folder = on_open_folder
         self.is_running = False
@@ -194,7 +196,21 @@ class EditorToolbar(ctk.CTkFrame):
             command=self._on_start_click
         )
         self.start_btn.pack(side="left", padx=Theme.DIMENSIONS['spacing_xs'])
-        
+
+        # 运行全部已打开的行为树（"▶ 开始"只运行当前Tab）
+        self.start_all_btn = ctk.CTkButton(
+            run_frame,
+            text="⏩ 全部开始",
+            width=84,
+            font=Theme.get_font('sm'),
+            height=Theme.DIMENSIONS['button_height'],
+            corner_radius=Theme.DIMENSIONS['button_corner_radius'],
+            fg_color='#15803D',
+            hover_color='#166534',
+            command=self._on_start_all_click
+        )
+        self.start_all_btn.pack(side="left", padx=Theme.DIMENSIONS['spacing_xs'])
+
         self.stop_btn = ctk.CTkButton(
             run_frame,
             text="⏹ 停止",
@@ -298,7 +314,11 @@ class EditorToolbar(ctk.CTkFrame):
     def _on_start_click(self):
         if self.on_start:
             self.on_start()
-    
+
+    def _on_start_all_click(self):
+        if self.on_start_all:
+            self.on_start_all()
+
     def _on_stop_click(self):
         if self.on_stop:
             self.on_stop()
@@ -309,10 +329,18 @@ class EditorToolbar(ctk.CTkFrame):
         self.undo_btn.configure(state="normal" if can_undo else "disabled")
         self.redo_btn.configure(state="normal" if can_redo else "disabled")
     
-    def set_running(self, running: bool):
-        self.is_running = running
-        self.start_btn.configure(state="disabled" if running else "normal")
-        self.stop_btn.configure(state="normal" if running else "disabled")
+    def set_run_state(self, active_running: bool, any_running: bool, all_running: bool):
+        """更新运行按钮状态
+
+        Args:
+            active_running: 当前Tab是否在运行（控制"▶ 开始"）
+            any_running: 是否有任一Tab在运行（控制"⏹ 停止"）
+            all_running: 是否所有Tab都在运行（控制"⏩ 全部开始"）
+        """
+        self.is_running = any_running
+        self.start_btn.configure(state="disabled" if active_running else "normal")
+        self.start_all_btn.configure(state="disabled" if all_running else "normal")
+        self.stop_btn.configure(state="normal" if any_running else "disabled")
     
     def set_status(self, text: str, color: Optional[str] = None):
         pass

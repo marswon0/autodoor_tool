@@ -3,6 +3,11 @@ from enum import Enum
 from typing import Tuple, Optional
 
 
+# 移动光标后、按下按键前的等待时间（秒）
+# 驱动层的移动与按键是异步注入的，不等待时按键可能先于光标到位，导致点击不生效
+MOUSE_MOVE_SETTLE_DELAY = 0.05
+
+
 class InputLevel(Enum):
     """输入模拟层级"""
     APPLICATION = "application"

@@ -56,7 +56,7 @@
 
 | 节点类型                  | 功能      | 关键参数                                                                          |
 | --------------------- | ------- | ----------------------------------------------------------------------------- |
-| OCRConditionNode      | OCR识别文字 | region, keywords, language, preprocess\_mode（默认/复杂色彩/自适应/自动调优）                |
+| OCRConditionNode      | OCR识别文字 | region, keywords, preprocess\_mode（默认/复杂色彩/自适应/自动调优）                |
 | ImageConditionNode    | 图像匹配    | region, template\_path, threshold（匹配阈值%，默认80）                                 |
 | ColorConditionNode    | 颜色检测    | region, target\_color（#RRGGBB）, tolerance（容差，默认30）, min\_pixels               |
 | NumberConditionNode   | 数字比较    | region, extract\_mode, compare\_mode（>/\</>=/<=/==/!=）, threshold, value\_key |
