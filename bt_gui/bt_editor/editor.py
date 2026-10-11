@@ -101,7 +101,8 @@ class BehaviorTreeEditor(ctk.CTkFrame):
             on_tab_switch=self._handle_tab_switch,
             on_tab_close=self._handle_tab_close,
             on_tab_run=self._handle_tab_run,
-            on_tab_stop=self._handle_tab_stop,
+            # 任何停止操作都停止所有正在运行的行为树
+            on_tab_stop=lambda tab_id: self._stop_running(),
             on_import=self._handle_import_project,
             on_tab_rename=self._handle_tab_rename,
             on_tab_is_running=self._handle_tab_is_running,
@@ -721,7 +722,8 @@ class BehaviorTreeEditor(ctk.CTkFrame):
             return
         
         if instance.is_running:
-            self._handle_tab_stop(target_tab_id)
+            # 任何停止操作都停止所有正在运行的行为树
+            self._stop_running()
         else:
             self._handle_tab_run(target_tab_id)
     

@@ -203,10 +203,11 @@ class ResourceService:
                             continue
                         
                         if key == 'subtree_path':
-                            if path_value.startswith("./"):
-                                abs_path = os.path.normpath(os.path.join(project_root, path_value[2:]))
-                            else:
+                            # 子树可能引用项目外的文件夹（如 ../LoginTree），相对路径一律按项目根目录解析
+                            if os.path.isabs(path_value):
                                 abs_path = os.path.abspath(path_value)
+                            else:
+                                abs_path = os.path.normpath(os.path.join(project_root, path_value))
                             
                             if os.path.isdir(abs_path):
                                 for root, dirs, files in os.walk(abs_path):

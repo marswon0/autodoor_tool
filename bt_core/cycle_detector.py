@@ -19,10 +19,10 @@ class CycleDetector:
         Returns:
             True 表示无循环，可以加载；False 表示有循环，拒绝加载
         """
-        normalized_new = os.path.normpath(os.path.abspath(new_path))
+        normalized_new = os.path.normcase(os.path.normpath(os.path.abspath(new_path)))
 
         for existing_path in subtree_stack:
-            normalized_existing = os.path.normpath(os.path.abspath(existing_path))
+            normalized_existing = os.path.normcase(os.path.normpath(os.path.abspath(existing_path)))
             if normalized_existing == normalized_new:
                 return False
 
@@ -32,14 +32,17 @@ class CycleDetector:
         """使用 ExecutionContext 检查循环
 
         Args:
-            context: 执行上下文（包含 _subtree_stack）
-            new_path: 即将加载的子树路径
+            context: 执行上下文（_subtree_stack 为祖先项目文件夹，project_root 为当前项目文件夹）
+            new_path: 即将加载的子树项目文件夹
 
         Returns:
             True 表示无循环；False 表示有循环
         """
-        subtree_stack = getattr(context, '_subtree_stack', [])
-        return self.check(subtree_stack, new_path)
+        chain = list(getattr(context, '_subtree_stack', []))
+        project_root = getattr(context, 'project_root', None)
+        if project_root:
+            chain.append(project_root)
+        return self.check(chain, new_path)
 
     def build_reference_graph(self, root_path: str, project_root: str = None) -> Dict[str, List[str]]:
         """构建引用关系图（用于可视化调试）

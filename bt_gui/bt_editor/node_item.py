@@ -403,6 +403,8 @@ class SubtreeNodeItem(NodeItem):
         self._expanded = False
         self._preview_items: list = []
         self._subtree_raw_data = None
+        # 已加载预览对应的 (行为树文件, 修改时间)，文件被修改后重新读取
+        self._subtree_raw_key = None
         self._is_preview = False
         self._is_readonly = False
 
@@ -661,10 +663,8 @@ class SubtreeNodeItem(NodeItem):
             pass
 
     def _load_subtree_data(self):
-        """加载子树数据"""
+        """加载子树数据（子树文件被修改后重新读取）"""
         import os
-        if self._subtree_raw_data is not None:
-            return True
         project_dir = self._resolve_subtree_path()
         if not project_dir or not os.path.isdir(project_dir):
             return False
@@ -672,9 +672,13 @@ class SubtreeNodeItem(NodeItem):
         if not tree_file or not os.path.exists(tree_file):
             return False
         try:
+            key = (tree_file, os.path.getmtime(tree_file))
+            if self._subtree_raw_data is not None and self._subtree_raw_key == key:
+                return True
             import json
             with open(tree_file, 'r', encoding='utf-8') as f:
                 self._subtree_raw_data = json.load(f)
+            self._subtree_raw_key = key
             return True
         except Exception:
             return False

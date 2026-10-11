@@ -1046,8 +1046,8 @@ class FolderField(FieldWidget):
         initial_dir = None
         if self.full_path:
             abs_full_path = self.full_path
-            if self.full_path.startswith("./"):
-                abs_full_path = os.path.normpath(os.path.join(project_root or ".", self.full_path[2:]))
+            if not os.path.isabs(abs_full_path):
+                abs_full_path = os.path.normpath(os.path.join(project_root or ".", abs_full_path))
             if os.path.isdir(abs_full_path):
                 initial_dir = os.path.dirname(abs_full_path)
         else:
@@ -1073,47 +1073,28 @@ class FolderField(FieldWidget):
             if not result:
                 return
 
-        if project_root:
-            import shutil
-            folder_name = os.path.basename(folder_path)
-            subtrees_dir = os.path.join(project_root, "subtrees")
-            os.makedirs(subtrees_dir, exist_ok=True)
-
-            dest_dir = os.path.join(subtrees_dir, folder_name)
-
-            if os.path.exists(dest_dir):
-                from tkinter import messagebox
-                result = messagebox.askyesno(
-                    "文件夹已存在",
-                    f"子树文件夹 '{folder_name}' 已存在于当前项目中。\n\n是否覆盖？"
-                )
-                if not result:
-                    rel_path = "./subtrees/" + folder_name
-                    self.full_path = rel_path
-                    self.var.set(folder_name)
-                    self.on_change(self.key, rel_path)
-                    return
-                # 将旧目录移到缓存而非直接删除，以便误操作时恢复
-                from bt_utils.resource_service import ResourceService
-                ResourceService.move_dir_to_cache(dest_dir, project_root)
-
-            try:
-                shutil.copytree(folder_path, dest_dir)
-            except Exception as e:
-                from tkinter import messagebox
-                messagebox.showerror("复制失败", f"复制子树项目文件夹失败: {e}")
-                return
-
-            rel_path = "./subtrees/" + folder_name
-            self.full_path = rel_path
-            self.var.set(folder_name)
-            self.on_change(self.key, rel_path)
+        folder_path = os.path.normpath(folder_path)
+        if project_root and os.path.normcase(folder_path) == os.path.normcase(os.path.normpath(project_root)):
+            from tkinter import messagebox
+            messagebox.showwarning("提示", "不能引用当前项目自身作为子树。")
             return
 
-        self.full_path = folder_path
-        folder_name = os.path.basename(folder_path)
-        self.var.set(folder_name)
-        self.on_change(self.key, folder_path)
+        # 直接引用原始项目文件夹而非复制，修改子树后所有引用它的行为树同步生效
+        # 优先存相对路径（如 ../LoginTree），整个工作目录一起移动时引用不会失效
+        stored_path = folder_path
+        if project_root:
+            try:
+                stored_path = os.path.relpath(folder_path, project_root).replace("\\", "/")
+                if not stored_path.startswith("../"):
+                    # 项目内的文件夹保持 ./ 前缀，与其它资源路径格式一致
+                    stored_path = "./" + stored_path
+            except ValueError:
+                # 不同盘符无法计算相对路径，保留绝对路径
+                pass
+
+        self.full_path = stored_path
+        self.var.set(os.path.basename(folder_path))
+        self.on_change(self.key, stored_path)
 
     def set_value(self, value: Any):
         if value:

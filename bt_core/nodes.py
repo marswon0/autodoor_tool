@@ -1521,6 +1521,8 @@ class SubtreeNode(CompositeNode):
         self._loaded_path: Optional[str] = None
         self._subtree_project_dir: Optional[str] = None
         self._file_modified_time: Optional[float] = None
+        # 子树本轮是否正在执行（执行中途不重新加载，用于开始/完成日志）
+        self._subtree_active = False
 
     def tick(self, context: "ExecutionContext") -> NodeStatus:
         return self._execute_with_decorators(context, self._tick_internal)
@@ -1546,21 +1548,34 @@ class SubtreeNode(CompositeNode):
             self._subtree_context.elapsed_time = context.elapsed_time
             self._subtree_context.tick_count = context.tick_count
 
-        context.push_subtree(self._loaded_path)
+        if not self._subtree_active:
+            self._subtree_active = True
+            LogManager.instance().log_info(
+                node_type="子树节点",
+                node_name=self.name,
+                message=f"开始运行子树 '{self._subtree_display_name()}'"
+            )
 
-        try:
-            status = self._subtree_root.tick(self._subtree_context)
+        status = self._subtree_root.tick(self._subtree_context)
 
-            if status != NodeStatus.RUNNING:
-                self._on_subtree_complete(status)
+        if status != NodeStatus.RUNNING:
+            self._subtree_active = False
+            self._on_subtree_complete(status)
 
-            return status
-        finally:
-            context.pop_subtree()
+        return status
+
+    def _subtree_display_name(self) -> str:
+        """子树显示名称（项目文件夹名）"""
+        path = self._subtree_project_dir or self.config.get("subtree_path", "")
+        return os.path.basename(os.path.normpath(path)) if path else ""
 
     def _ensure_loaded(self, context: "ExecutionContext") -> bool:
         """确保子树已加载，返回是否成功"""
         from .cycle_detector import CycleDetector
+
+        # 子树执行中途不重新加载：本轮跑完旧版本，下次进入时再加载修改后的版本
+        if self._subtree_active and self._subtree_root is not None and self._subtree_context is not None:
+            return True
 
         subtree_project_dir = self._resolve_path(context)
         if not subtree_project_dir:
@@ -1658,18 +1673,21 @@ class SubtreeNode(CompositeNode):
 
         subtree_project_dir = getattr(self, '_subtree_project_dir', None) or parent_context.project_root
 
+        # 引用链：祖先项目文件夹 + 父项目文件夹，用于循环引用检测和嵌套深度限制
+        subtree_stack = parent_context._subtree_stack + [parent_context.project_root]
+
         blackboard_mode = self.config.get("blackboard_mode", "inherit")
 
         if blackboard_mode == "inherit":
             sub_context = ExecutionContext(subtree_project_dir)
             sub_context.blackboard = parent_context.blackboard
-            sub_context._subtree_stack = parent_context._subtree_stack.copy()
+            sub_context._subtree_stack = subtree_stack
             sub_context._parent_context = parent_context
             return sub_context
 
         elif blackboard_mode == "isolated":
             sub_context = ExecutionContext(subtree_project_dir)
-            sub_context._subtree_stack = parent_context._subtree_stack.copy()
+            sub_context._subtree_stack = subtree_stack
             sub_context._parent_context = parent_context
             return sub_context
 
@@ -1681,7 +1699,7 @@ class SubtreeNode(CompositeNode):
                 namespace
             )
             sub_context._parent_context = parent_context
-            sub_context._subtree_stack = parent_context._subtree_stack.copy()
+            sub_context._subtree_stack = subtree_stack
             return sub_context
 
         return parent_context
@@ -1698,7 +1716,7 @@ class SubtreeNode(CompositeNode):
         if os.path.isabs(subtree_path):
             return subtree_path
 
-        return os.path.join(context.project_root, subtree_path)
+        return os.path.normpath(os.path.join(context.project_root, subtree_path))
 
     def _find_tree_file(self, project_dir: str) -> Optional[str]:
         """在子树项目文件夹中查找行为树文件
@@ -1744,7 +1762,19 @@ class SubtreeNode(CompositeNode):
 
     def _on_subtree_complete(self, status: NodeStatus):
         """子树完成时的处理"""
-        pass
+        subtree_name = self._subtree_display_name()
+        if status == NodeStatus.SUCCESS:
+            LogManager.instance().log_success(
+                node_type="子树节点",
+                node_name=self.name,
+                message=f"子树 '{subtree_name}' 运行完成：成功"
+            )
+        elif status == NodeStatus.FAILURE:
+            LogManager.instance().log_failure(
+                node_type="子树节点",
+                node_name=self.name,
+                reason=f"子树 '{subtree_name}' 运行完成：失败"
+            )
 
     def _check_encrypted_subtree(self, project_dir: str) -> tuple:
         try:
@@ -1912,6 +1942,7 @@ class SubtreeNode(CompositeNode):
     def reset(self, reset_counters: bool = True) -> None:
         """重置节点状态"""
         super().reset(reset_counters)
+        self._subtree_active = False
         if self._subtree_root:
             self._subtree_root.reset(reset_counters)
 
@@ -1919,6 +1950,7 @@ class SubtreeNode(CompositeNode):
         """中止节点执行"""
         if self._subtree_root and self._subtree_context:
             self._subtree_root.abort(self._subtree_context)
+        self._subtree_active = False
         self._subtree_context = None
         self._children_running = False
         super().abort(context)
