@@ -13,11 +13,7 @@ class ColorConditionNode(ConditionNode):
     def _check_condition(self, context) -> bool:
         try:
             region = self._get_effective_region(context)
-            if region is None:
-                self._log_condition_result(False, "请先设置检测区域")
-                return False
-
-            screenshot = self._get_region_image(context)
+            screenshot = self._get_region_image(context, region)
             if screenshot is None:
                 return False
 
@@ -33,7 +29,7 @@ class ColorConditionNode(ConditionNode):
             )
 
             if found:
-                actual_position = self._adjust_position(position, context)
+                actual_position = self._adjust_position(position, region)
                 self._save_position(context, actual_position)
                 self._log_condition_result(True)
                 return True

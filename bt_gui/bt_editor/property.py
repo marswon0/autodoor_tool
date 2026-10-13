@@ -12,58 +12,55 @@ from bt_utils.log_manager import LogManager
 
 
 def _display_config_value(config_data: Dict[str, Any], key: str, value: Any) -> Any:
-    """旧节点未保存区域选择方式但已框选检测区域时，按固定区域显示（与节点运行时逻辑一致）"""
-    if key == "region_mode" and value is None and config_data.get("region"):
-        return "fixed"
+    """区域选择方式兼容旧节点（与节点运行时逻辑一致）：
+    旧值 dynamic 按全屏检测显示；未保存区域选择方式但已框选检测区域时按固定区域显示"""
+    if key == "region_mode":
+        if value == "dynamic":
+            return "full_screen"
+        if value is None and config_data.get("region"):
+            return "fixed"
     return value
+
+
+# 区域选择方式相关字段（OCR/图像/颜色/数字/文本提取节点共用）
+_REGION_FIELDS = [
+    {"key": "region_mode", "label": "区域选择方式", "type": "select", "options": ["full_screen", "fixed", "anchored"], "display_names": {"full_screen": "全屏检测", "fixed": "固定区域检测", "anchored": "锚点周边检测"}, "default": "full_screen"},
+    {"key": "region", "label": "检测区域", "type": "region", "hide_if": {"field": "region_mode", "value": ["full_screen", "anchored"]}},
+    {"key": "anchor_blackboard_key", "label": "从黑板变量读取锚点坐标", "type": "text", "default": "last_detection_position", "hide_if": {"field": "region_mode", "value": ["full_screen", "fixed"]}},
+    {"key": "region_offset", "label": "区域偏移量", "type": "region_offset", "default": [-50, -50, 50, 50], "hide_if": {"field": "region_mode", "value": ["full_screen", "fixed"]}},
+]
 
 
 NODE_CONFIG_SCHEMAS = {
     "OCRConditionNode": [
-        {"key": "region_mode", "label": "区域选择方式", "type": "select", "options": ["fixed", "dynamic"], "display_names": {"fixed": "固定区域检测", "dynamic": "动态区域检测"}, "default": "dynamic"},
-        {"key": "region", "label": "检测区域", "type": "region", "hide_if": {"field": "region_mode", "value": "dynamic"}},
-        {"key": "region_use_last_pos", "label": "锚点设置最近检测点", "type": "bool", "default": False, "hide_if": {"field": "region_mode", "value": "fixed"}},
-        {"key": "region_anchor", "label": "位置变量名", "type": "text", "default": "", "hide_if": {"field": "region_mode", "value": "fixed"}},
-        {"key": "region_offset", "label": "区域偏移量", "type": "region_offset", "default": [-50, -50, 50, 50], "hide_if": {"field": "region_mode", "value": "fixed"}},
+        *_REGION_FIELDS,
         {"key": "keyword_source", "label": "关键词来源", "type": "select", "options": ["固定文本", "黑板变量"], "default": "固定文本"},
         {"key": "keywords", "label": "关键词", "type": "text", "hide_if": {"field": "keyword_source", "value": "黑板变量"}},
         {"key": "keyword_variable", "label": "黑板变量名", "type": "text", "default": "", "hide_if": {"field": "keyword_source", "value": "固定文本"}},
         {"key": "preprocess_mode", "label": "图像预处理", "type": "select", "options": ["默认", "复杂色彩", "自适应", "自动调优"], "default": "默认"},
         {"key": "search_direction", "label": "识别起点", "type": "select", "options": ["左上", "右上", "左下", "右下"], "default": "左上"},
-        {"key": "position_key", "label": "位置变量名", "type": "text", "default": ""},
+        {"key": "position_key", "label": "保存结果至黑板变量", "type": "text", "default": ""},
         {"key": "offset", "label": "坐标偏移", "type": "offset"},
     ],
     "ImageConditionNode": [
-        {"key": "region_mode", "label": "区域选择方式", "type": "select", "options": ["fixed", "dynamic"], "display_names": {"fixed": "固定区域检测", "dynamic": "动态区域检测"}, "default": "dynamic"},
-        {"key": "region", "label": "检测区域", "type": "region", "hide_if": {"field": "region_mode", "value": "dynamic"}},
-        {"key": "region_use_last_pos", "label": "锚点设置最近检测点", "type": "bool", "default": False, "hide_if": {"field": "region_mode", "value": "fixed"}},
-        {"key": "region_anchor", "label": "位置变量名", "type": "text", "default": "", "hide_if": {"field": "region_mode", "value": "fixed"}},
-        {"key": "region_offset", "label": "区域偏移量", "type": "region_offset", "default": [-50, -50, 50, 50], "hide_if": {"field": "region_mode", "value": "fixed"}},
+        *_REGION_FIELDS,
         {"key": "template_path", "label": "模板路径", "type": "screenshot", "width": 120, "filetypes": [("图像文件", "*.png *.jpg *.jpeg *.bmp"), ("所有文件", "*.*")]},
         {"key": "threshold", "label": "形状阈值(%)", "type": "number", "min": 0, "max": 100, "default": 80},
         {"key": "color_check", "label": "颜色校验", "type": "bool", "default": False},
         {"key": "color_threshold", "label": "颜色阈值(%)", "type": "number", "min": 0, "max": 100, "default": 80, "hide_if": {"field": "color_check", "value": False}},
-        {"key": "position_key", "label": "位置变量名", "type": "text", "default": ""},
+        {"key": "position_key", "label": "保存结果至黑板变量", "type": "text", "default": ""},
         {"key": "offset", "label": "坐标偏移", "type": "offset"},
     ],
     "ColorConditionNode": [
-        {"key": "region_mode", "label": "区域选择方式", "type": "select", "options": ["fixed", "dynamic"], "display_names": {"fixed": "固定区域检测", "dynamic": "动态区域检测"}, "default": "fixed"},
-        {"key": "region", "label": "检测区域", "type": "region", "hide_if": {"field": "region_mode", "value": "dynamic"}},
-        {"key": "region_use_last_pos", "label": "锚点设置最近检测点", "type": "bool", "default": True, "hide_if": {"field": "region_mode", "value": "fixed"}},
-        {"key": "region_anchor", "label": "位置变量名", "type": "text", "default": "", "hide_if": {"field": "region_mode", "value": "fixed"}},
-        {"key": "region_offset", "label": "区域偏移量", "type": "region_offset", "default": [-50, -50, 50, 50], "hide_if": {"field": "region_mode", "value": "fixed"}},
+        *_REGION_FIELDS,
         {"key": "target_color", "label": "目标颜色", "type": "color"},
         {"key": "tolerance", "label": "容差", "type": "number", "min": 0, "max": 100, "default": 10},
         {"key": "min_pixels", "label": "最小像素数", "type": "number", "min": 1, "default": 1},
-        {"key": "position_key", "label": "位置变量名", "type": "text", "default": ""},
+        {"key": "position_key", "label": "保存结果至黑板变量", "type": "text", "default": ""},
         {"key": "offset", "label": "坐标偏移", "type": "offset"},
     ],
     "NumberConditionNode": [
-        {"key": "region_mode", "label": "区域选择方式", "type": "select", "options": ["fixed", "dynamic"], "display_names": {"fixed": "固定区域检测", "dynamic": "动态区域检测"}, "default": "fixed"},
-        {"key": "region", "label": "检测区域", "type": "region", "hide_if": {"field": "region_mode", "value": "dynamic"}},
-        {"key": "region_use_last_pos", "label": "锚点设置最近检测点", "type": "bool", "default": True, "hide_if": {"field": "region_mode", "value": "fixed"}},
-        {"key": "region_anchor", "label": "位置变量名", "type": "text", "default": "", "hide_if": {"field": "region_mode", "value": "fixed"}},
-        {"key": "region_offset", "label": "区域偏移量", "type": "region_offset", "default": [-50, -50, 50, 50], "hide_if": {"field": "region_mode", "value": "fixed"}},
+        *_REGION_FIELDS,
         {"key": "preprocess_mode", "label": "图像预处理", "type": "select", "options": ["默认", "复杂色彩", "自适应", "自动调优"], "default": "默认"},
         {"key": "extract_mode", "label": "提取模式", "type": "select", "options": ["无规则", "x/y", "自定义"], "default": "无规则"},
         {"key": "extract_pattern", "label": "自定义模式", "type": "text", "hide_if": {"field": "extract_mode", "value": ["无规则", "x/y"]}},
@@ -72,7 +69,7 @@ NODE_CONFIG_SCHEMAS = {
         {"key": "min_confidence", "label": "置信度阈值(%)", "type": "number", "min": 0, "max": 100, "default": 50},
         {"key": "search_direction", "label": "识别起点", "type": "select", "options": ["左上", "右上", "左下", "右下"], "default": "左上"},
         {"key": "value_key", "label": "值变量名", "type": "text", "default": "last_number_value"},
-        {"key": "position_key", "label": "位置变量名", "type": "text", "default": ""},
+        {"key": "position_key", "label": "保存结果至黑板变量", "type": "text", "default": ""},
         {"key": "offset", "label": "坐标偏移", "type": "offset"},
     ],
     "VariableConditionNode": {
@@ -259,11 +256,7 @@ NODE_CONFIG_SCHEMAS = {
         {"key": "output_key", "label": "输出变量名", "type": "text", "default": "last_input_text", "hide_if": {"field": "save_input_text", "value": False}},
     ],
     "TextExtractNode": [
-        {"key": "region_mode", "label": "区域选择方式", "type": "select", "options": ["fixed", "dynamic"], "display_names": {"fixed": "固定区域检测", "dynamic": "动态区域检测"}, "default": "dynamic"},
-        {"key": "region", "label": "检测区域", "type": "region", "hide_if": {"field": "region_mode", "value": "dynamic"}},
-        {"key": "region_use_last_pos", "label": "锚点设置最近检测点", "type": "bool", "default": False, "hide_if": {"field": "region_mode", "value": "fixed"}},
-        {"key": "region_anchor", "label": "位置变量名", "type": "text", "default": "", "hide_if": {"field": "region_mode", "value": "fixed"}},
-        {"key": "region_offset", "label": "区域偏移量", "type": "region_offset", "default": [-50, -50, 50, 50], "hide_if": {"field": "region_mode", "value": "fixed"}},
+        *_REGION_FIELDS,
         {"key": "extract_mode", "label": "提取模式", "type": "select", "options": ["all", "keywords"], "default": "all"},
         {"key": "keywords", "label": "关键词", "type": "text", "hide_if": {"field": "extract_mode", "value": "all"}},
         {"key": "preprocess_mode", "label": "图像预处理", "type": "select", "options": ["默认", "复杂色彩", "自适应", "自动调优"], "default": "默认"},
@@ -271,7 +264,7 @@ NODE_CONFIG_SCHEMAS = {
         {"key": "save_all_text", "label": "保存全部文本", "type": "bool", "default": False},
         {"key": "all_text_key", "label": "全部文本变量名", "type": "text", "default": "all_ocr_text", "hide_if": {"field": "save_all_text", "value": False}},
         {"key": "save_position", "label": "保存位置", "type": "bool", "default": True},
-        {"key": "position_key", "label": "位置变量名", "type": "text", "default": ""},
+        {"key": "position_key", "label": "保存结果至黑板变量", "type": "text", "default": ""},
         {"key": "offset", "label": "坐标偏移", "type": "offset"},
     ],
     "ParallelNode": [

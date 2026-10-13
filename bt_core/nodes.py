@@ -917,19 +917,18 @@ class ConditionNode(Node):
                 pass
         return (255, 0, 0)
 
-    def _adjust_position(self, position: tuple, context=None) -> tuple:
-        """调整坐标（加上区域偏移）
+    def _adjust_position(self, position: tuple, region) -> tuple:
+        """调整坐标（加上检测区域左上角偏移）
 
         Args:
-            position: 相对位置
-            context: 执行上下文
+            position: 检测区域内的相对位置
+            region: 检测区域 (x1,y1,x2,y2)；None 表示全屏
 
         Returns:
             绝对位置
         """
         if position is None:
             return None
-        region = self._get_effective_region(context) if context else self._parse_region(self.config.get("region", None))
         if region:
             return (position[0] + region[0], position[1] + region[1])
         return position
@@ -1080,78 +1079,53 @@ class ConditionNode(Node):
             return all(isinstance(x, int) for x in region)
         return False
 
-    # 差异截图：无region时的默认检测区域半径
-    _DEFAULT_REGION_RADIUS = 150
-
-    # 区域选择方式未保存时的默认值（子类可覆盖，需与属性面板默认值一致）
-    REGION_MODE_DEFAULT = "fixed"
+    # 区域选择方式未保存时的默认值（需与属性面板默认值一致）
+    REGION_MODE_DEFAULT = "full_screen"
 
     def _get_region_mode(self) -> str:
-        """区域选择方式；未保存时取 REGION_MODE_DEFAULT。
-        兼容旧节点：未保存区域选择方式但已框选检测区域的，按固定区域处理"""
+        """区域选择方式：full_screen（全屏检测）/ fixed（固定区域检测）/ anchored（锚点周边检测）
+
+        未保存时取 REGION_MODE_DEFAULT。兼容旧节点：旧值 dynamic 按全屏检测处理；
+        未保存区域选择方式但已框选检测区域的，按固定区域处理
+        """
         mode = self.config.get("region_mode", None)
+        if mode == "dynamic":
+            return "full_screen"
         if mode:
             return mode
         if self._parse_region(self.config.get("region", None)) is not None:
             return "fixed"
         return self.REGION_MODE_DEFAULT
 
-    def _get_region_image(self, context):
+    def _get_region_image(self, context, region):
+        """截取检测区域；region 为 None 时全屏"""
         try:
-            return context.get_screenshot(self._get_effective_region(context))
+            return context.get_screenshot(region)
         except Exception as e:
             from bt_utils.exception_handler import log_exception
             log_exception(e, f"{self.NODE_TYPE} '{self.name}' 截图失败")
             return None
 
     def _get_effective_region(self, context):
-        """检测区域 (x1,y1,x2,y2)；返回 None 表示整屏（绑定窗口时为整个窗口）
+        """检测区域 (x1,y1,x2,y2)；返回 None 表示全屏（绑定窗口时为整个窗口）
 
-        动态区域无锚点时整屏检测，不回退到上次检测位置附近。
+        固定区域未框选、锚点周边检测无可用锚点时，均回退为全屏检测。
         """
-        if self._get_region_mode() == "dynamic":
-            return self._resolve_dynamic_region(context)
-        region = self._parse_region(self.config.get("region", None))
-        if region is None:
-            # 差异截图优化：固定区域未框选时尝试使用上次检测位置附近的区域
-            region = self._get_fallback_region(context)
-        return region
+        mode = self._get_region_mode()
+        if mode == "fixed":
+            return self._parse_region(self.config.get("region", None))
+        if mode == "anchored":
+            return self._resolve_anchored_region(context)
+        return None
 
-    def _get_fallback_region(self, context):
-        """当未配置region时，尝试使用上次检测位置附近的区域作为回退
+    def _resolve_anchored_region(self, context):
+        """锚点周边检测：以黑板变量中的锚点坐标为中心叠加区域偏移量
 
-        避免全屏截图的开销。如果黑板中有上次检测位置，则以其为中心
-        截取 _DEFAULT_REGION_RADIUS 范围内的区域。
-
-        Args:
-            context: 执行上下文
-
-        Returns:
-            region元组 (x1,y1,x2,y2) 或 None（无可用的回退位置时）
+        变量名为空、变量不存在或格式无效时返回 None（全屏检测）。
         """
-        pos = context.blackboard.get("last_detection_position")
-        if pos is None or not isinstance(pos, (tuple, list)) or len(pos) < 2:
+        anchor_key = str(self.config.get("anchor_blackboard_key", "last_detection_position") or "").strip()
+        if not anchor_key:
             return None
-
-        cx, cy = int(pos[0]), int(pos[1])
-        r = self._DEFAULT_REGION_RADIUS
-        return (max(0, cx - r), max(0, cy - r), cx + r, cy + r)
-
-    # 动态区域"锚点设置最近检测点"未保存时的默认值（子类可覆盖，需与属性面板默认值一致）
-    REGION_USE_LAST_POS_DEFAULT = True
-
-    def _resolve_dynamic_region(self, context):
-        """动态区域：以锚点为中心叠加区域偏移量；无锚点时返回 None（整屏检测）
-
-        未勾选"锚点设置最近检测点"且位置变量名为空时没有锚点，不使用上次检测位置。
-        """
-        use_last_pos = self.config.get_bool("region_use_last_pos", self.REGION_USE_LAST_POS_DEFAULT)
-        if use_last_pos:
-            anchor_key = "last_detection_position"
-        else:
-            anchor_key = str(self.config.get("region_anchor", "") or "").strip()
-            if not anchor_key:
-                return None
 
         pos = context.blackboard.get(anchor_key)
         if pos is None or not isinstance(pos, (tuple, list)) or len(pos) < 2:
@@ -1159,7 +1133,7 @@ class ConditionNode(Node):
             LogManager.instance().log_failure(
                 node_type=self.NODE_TYPE,
                 node_name=self.name,
-                reason=f"动态区域锚点 '{anchor_key}' 不存在或格式无效，使用全屏截图"
+                reason=f"锚点变量 '{anchor_key}' 不存在或格式无效，使用全屏检测"
             )
             return None
 

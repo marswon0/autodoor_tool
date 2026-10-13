@@ -8,8 +8,6 @@ from bt_utils.image_processor import ImageProcessor
 
 class ImageConditionNode(ConditionNode):
     NODE_TYPE = "ImageConditionNode"
-    REGION_MODE_DEFAULT = "dynamic"
-    REGION_USE_LAST_POS_DEFAULT = False
 
     # 类级别模板缓存，避免每次 tick 重新从磁盘加载
     # 值为 (文件修改时间, 文件大小, 图像)，文件被替换后自动重新加载
@@ -26,7 +24,8 @@ class ImageConditionNode(ConditionNode):
             if resolved_path is None:
                 return False
 
-            screenshot = self._get_region_image(context)
+            region = self._get_effective_region(context)
+            screenshot = self._get_region_image(context, region)
             if screenshot is None:
                 return False
 
@@ -60,7 +59,7 @@ class ImageConditionNode(ConditionNode):
                 )
 
             if found:
-                actual_position = self._adjust_position(position, context)
+                actual_position = self._adjust_position(position, region)
                 self._save_position(context, actual_position)
                 self._log_condition_result(True)
                 return True

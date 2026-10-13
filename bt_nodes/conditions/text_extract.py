@@ -16,15 +16,14 @@ EXTRACT_MODE_MAP = {
 
 class TextExtractNode(ConditionNode):
     NODE_TYPE = "TextExtractNode"
-    REGION_MODE_DEFAULT = "dynamic"
-    REGION_USE_LAST_POS_DEFAULT = False
 
     def __init__(self, node_id: str = None, config: NodeConfig = None):
         super().__init__(node_id, config)
 
     def _check_condition(self, context) -> bool:
         try:
-            screenshot = self._get_region_image(context)
+            region = self._get_effective_region(context)
+            screenshot = self._get_region_image(context, region)
             if screenshot is None:
                 return False
 
@@ -62,7 +61,6 @@ class TextExtractNode(ConditionNode):
 
             save_position = self.config.get_bool("save_position", True)
             if save_position:
-                region = self._get_effective_region(context)
                 region_left = region[0] if region else 0
                 region_top = region[1] if region else 0
 

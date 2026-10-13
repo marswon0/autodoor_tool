@@ -14,11 +14,7 @@ class NumberConditionNode(ConditionNode):
     def _check_condition(self, context) -> bool:
         try:
             region = self._get_effective_region(context)
-            if region is None:
-                self._log_condition_result(False, "请先设置检测区域")
-                return False
-
-            screenshot = self._get_region_image(context)
+            screenshot = self._get_region_image(context, region)
             if screenshot is None:
                 return False
 
@@ -46,7 +42,7 @@ class NumberConditionNode(ConditionNode):
                 return False
 
             if position:
-                actual_position = (position[0] + region[0], position[1] + region[1])
+                actual_position = self._adjust_position(position, region)
                 self._save_position(context, actual_position)
 
             value_key = self.config.get("value_key", "last_number_value")
