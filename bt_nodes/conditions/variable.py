@@ -17,13 +17,14 @@ class VariableConditionNode(ConditionNode):
             self._log_condition_result(False, "未设置变量名")
             return False
 
+        # 值为 None 视同不存在
         if operator == "exists":
-            result = context.blackboard.exists(var_name)
+            result = context.blackboard.get(var_name) is not None
             self._log_condition_result(result, f"变量 '{var_name}' 存在性检查: {result}")
             return result
 
         if operator == "not_exists":
-            result = not context.blackboard.exists(var_name)
+            result = context.blackboard.get(var_name) is None
             self._log_condition_result(result, f"变量 '{var_name}' 不存在检查: {result}")
             return result
 
