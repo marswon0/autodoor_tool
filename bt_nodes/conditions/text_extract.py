@@ -70,30 +70,12 @@ class TextExtractNode(ConditionNode):
                     region_left, region_top
                 )
                 if ocr_position:
-                    try:
-                        from config.settings_manager import get_default_position_key
-                        default_position_key = get_default_position_key()
-                    except ImportError:
-                        default_position_key = "last_detection_position"
-                    position_key = self.config.get("position_key", "") or default_position_key
-                    context.blackboard.set(position_key, ocr_position)
-                    context.blackboard.set("last_detection_x", ocr_position[0])
-                    context.blackboard.set("last_detection_y", ocr_position[1])
-                else:
+                    self._save_position(context, ocr_position)
+                elif region:
                     # 回退：使用区域中心
-                    if region:
-                        center_x = (region[0] + region[2]) // 2
-                        center_y = (region[1] + region[3]) // 2
-                        try:
-                            from config.settings_manager import get_default_position_key
-                            default_position_key = get_default_position_key()
-                        except ImportError:
-                            default_position_key = "last_detection_position"
-                        position_key = self.config.get("position_key", "") or default_position_key
-                        context.blackboard.set(position_key, (center_x, center_y))
-                        # BUG-01 修复：回退路径补写 last_detection_x/y
-                        context.blackboard.set("last_detection_x", center_x)
-                        context.blackboard.set("last_detection_y", center_y)
+                    center_x = (region[0] + region[2]) // 2
+                    center_y = (region[1] + region[3]) // 2
+                    self._save_position(context, (center_x, center_y))
 
             if extracted_text:
                 self._log_condition_result(True)

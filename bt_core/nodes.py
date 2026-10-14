@@ -933,21 +933,6 @@ class ConditionNode(Node):
             return (position[0] + region[0], position[1] + region[1])
         return position
 
-    def _apply_offset(self, position: tuple) -> tuple:
-        """应用坐标偏移
-
-        Args:
-            position: 原始位置 (x, y)
-
-        Returns:
-            tuple: 偏移后的位置
-        """
-        if position is None:
-            return None
-
-        offset = self._get_offset()
-        return (position[0] + offset[0], position[1] + offset[1])
-
     def _get_offset(self) -> tuple:
         """从配置读取坐标偏移"""
         offset = self.config.get("offset", None)
@@ -961,27 +946,34 @@ class ConditionNode(Node):
             offset_y = self.config.get_int("offset_y", 0)
             return (offset_x, offset_y)
 
-    def _save_position(self, context, position: tuple):
-        """保存位置到黑板（应用偏移）
+    def _save_position(self, context, position: tuple, size: tuple = None):
+        """保存检测位置到黑板（不含坐标偏移）
 
+        位置同时写入最近检测点与自定义变量（如有）。坐标偏移与检测尺寸单独保存，
+        由鼠标点击节点在"最近检测点"模式下使用。
         坐标转换由 ExecutionContext 的 execute_mouse_* 方法自动处理。
 
         Args:
             context: 执行上下文
-            position: 原始位置（窗口相对坐标或屏幕绝对坐标）
+            position: 检测位置（窗口相对坐标或屏幕绝对坐标）
+            size: 检测目标尺寸 (w, h)；无尺寸的检测（如颜色）为 None
         """
         save_position = self.config.get_bool("save_position", True)
         if position and save_position:
-            final_position = self._apply_offset(position)
+            position = (int(position[0]), int(position[1]))
             try:
                 from config.settings_manager import get_default_position_key
                 default_position_key = get_default_position_key()
             except ImportError:
                 default_position_key = "last_detection_position"
-            position_key = self.config.get("position_key", "") or default_position_key
-            context.blackboard.set(position_key, final_position)
-            context.blackboard.set("last_detection_x", final_position[0])
-            context.blackboard.set("last_detection_y", final_position[1])
+            context.blackboard.set(default_position_key, position)
+            position_key = self.config.get("position_key", "")
+            if position_key and position_key != default_position_key:
+                context.blackboard.set(position_key, position)
+            context.blackboard.set("last_detection_x", position[0])
+            context.blackboard.set("last_detection_y", position[1])
+            context.blackboard.set("last_detection_size", size)
+            context.blackboard.set("last_detection_offset", self._get_offset())
 
     def tick(self, context: "ExecutionContext") -> NodeStatus:
         return self._execute_with_decorators(context, self._tick_internal)

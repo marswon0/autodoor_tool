@@ -60,7 +60,7 @@ class ImageConditionNode(ConditionNode):
 
             if found:
                 actual_position = self._adjust_position(position, region)
-                self._save_position(context, actual_position)
+                self._save_position(context, actual_position, size=template.size)
                 self._log_condition_result(True)
                 return True
             elif color_check and color_score is not None:

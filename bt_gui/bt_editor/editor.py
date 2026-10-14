@@ -772,7 +772,7 @@ class BehaviorTreeEditor(ctk.CTkFrame):
             }
         elif node_type == "MouseClickNode":
             node_config = {
-                "use_blackboard": True
+                "position_mode": "last_detection"
             }
         elif node_type == "ImageConditionNode":
             node_config = {

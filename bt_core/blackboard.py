@@ -15,6 +15,8 @@ class Blackboard:
         "last_detection_position": None,
         "last_detection_x": None,
         "last_detection_y": None,
+        "last_detection_size": None,
+        "last_detection_offset": None,
         "last_number_value": None,
     }
 
@@ -22,6 +24,8 @@ class Blackboard:
         "last_detection_position": "最近检测点",
         "last_detection_x": "最近检测点x值",
         "last_detection_y": "最近检测点y值",
+        "last_detection_size": "最近检测尺寸",
+        "last_detection_offset": "最近检测坐标偏移",
         "last_number_value": "最近数字值",
     }
 

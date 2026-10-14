@@ -1,6 +1,7 @@
 from bt_core.nodes import ActionNode, NodeStatus
 from bt_core.config import NodeConfig
 from typing import Dict, Any, Tuple, Optional
+import random
 import time
 from bt_utils.log_manager import LogManager
 from bt_utils.helpers import get_random_duration, get_random_interval
@@ -22,6 +23,24 @@ def _ensure_tuple_position(value):
     return value
 
 
+# 随机点击范围上限（检测目标尺寸的百分比），保证点击不超出检测图像
+CLICK_RANDOM_PERCENT_MAX = 90
+
+
+def get_click_position_mode(config) -> str:
+    """点击位置来源：last_detection（最近检测点）/ fixed（固定坐标）/ variable（黑板变量）
+
+    兼容旧节点（未保存 position_mode）：勾选"点击最近检测点"且未填变量名 → 最近检测点；
+    勾选且填了变量名 → 黑板变量；未勾选 → 固定坐标
+    """
+    mode = config.get("position_mode", None)
+    if mode:
+        return mode
+    if config.get_bool("use_blackboard", False):
+        return "variable" if config.get("position_key", "") else "last_detection"
+    return "fixed"
+
+
 class MouseClickNode(ActionNode):
     NODE_TYPE = "MouseClickNode"
 
@@ -31,8 +50,9 @@ class MouseClickNode(ActionNode):
         self.position: Optional[Tuple[int, int]] = _ensure_tuple_position(self.config.get("position", None))
         self.action = self.config.get("action", "press")
         self.duration = self.config.get_int("duration", 100)
-        self.use_blackboard = self.config.get_bool("use_blackboard", False)
-        self.position_key = self.config.get("position_key", _get_default_position_key())
+        self.position_mode = get_click_position_mode(self.config)
+        self.position_key = self.config.get("position_key", "")
+        self.random_percent = self.config.get_int("random_percent", 0)
         self.click_count = self.config.get_int("click_count", 1)
         self.click_interval = self.config.get_int("click_interval", 100)
         self.duration_random = self.config.get_int("duration_random", 0)
@@ -47,11 +67,20 @@ class MouseClickNode(ActionNode):
         self._click_started = False
         self._button_pressed = False
         self._context = None
+        self._no_size_logged = False
 
     def _execute_action(self, context) -> NodeStatus:
         try:
             self._context = context
             click_position = self._get_position(context)
+            if click_position is None and get_click_position_mode(self.config) != "fixed":
+                self._release_button()
+                LogManager.instance().log_failure(
+                    node_type="鼠标点击节点",
+                    node_name=self.name,
+                    reason="黑板中没有可用的点击位置"
+                )
+                return NodeStatus.FAILURE
 
             if not self._click_started:
                 self._click_started = True
@@ -83,12 +112,48 @@ class MouseClickNode(ActionNode):
             return NodeStatus.FAILURE
 
     def _get_position(self, context) -> Optional[Tuple[int, int]]:
-        if self.config.get_bool("use_blackboard", False):
+        mode = get_click_position_mode(self.config)
+        if mode == "last_detection":
+            return self._get_detection_click_position(context)
+        if mode == "variable":
             position_key = self.config.get("position_key", "") or _get_default_position_key()
-            bb_position = context.blackboard.get(position_key)
-            if bb_position:
-                return _ensure_tuple_position(bb_position)
+            return _ensure_tuple_position(context.blackboard.get(position_key))
         return _ensure_tuple_position(self.config.get("position", None))
+
+    def _get_detection_click_position(self, context) -> Optional[Tuple[int, int]]:
+        """最近检测点 + 检测节点的坐标偏移 + 检测尺寸内的随机点（每次点击重新随机）"""
+        position = _ensure_tuple_position(context.blackboard.get(_get_default_position_key()))
+        if position is None:
+            return None
+
+        percent = min(max(self.config.get_int("random_percent", 0), 0), CLICK_RANDOM_PERCENT_MAX)
+        size = context.blackboard.get("last_detection_size")
+        dx = dy = 0
+        if percent > 0:
+            if isinstance(size, (list, tuple)) and len(size) >= 2:
+                # 随机区域以检测中心为中心，边长为检测尺寸的 percent%
+                half_w = size[0] * percent / 200
+                half_h = size[1] * percent / 200
+                dx = round(random.uniform(-half_w, half_w))
+                dy = round(random.uniform(-half_h, half_h))
+            elif not self._no_size_logged:
+                self._no_size_logged = True
+                LogManager.instance().log_info(
+                    node_type="鼠标点击节点",
+                    node_name=self.name,
+                    message="最近检测无尺寸信息（如颜色/文字检测），随机点击范围不生效，点击检测点本身"
+                )
+
+        offset = context.blackboard.get("last_detection_offset")
+        if not (isinstance(offset, (list, tuple)) and len(offset) >= 2):
+            offset = (0, 0)
+        return (position[0] + int(offset[0]) + dx, position[1] + int(offset[1]) + dy)
+
+    def _get_float_range(self) -> Tuple[int, int]:
+        """±px 随机范围；最近检测点模式改用百分比随机，不叠加 ±px"""
+        if get_click_position_mode(self.config) == "last_detection":
+            return (0, 0)
+        return (self.config.get_int("x_float", 0), self.config.get_int("y_float", 0))
 
     def _non_blocking_finite_click(self, context, position: Optional[Tuple[int, int]]) -> NodeStatus:
         current_time = time.time() * 1000
@@ -117,8 +182,9 @@ class MouseClickNode(ActionNode):
 
             if self._actual_duration is None:
                 self._actual_duration = get_random_duration(duration, duration_random)
+            x_float, y_float = self._get_float_range()
             context.execute_mouse_click(button, position, action, self._actual_duration,
-                                        x_float=self.x_float, y_float=self.y_float)
+                                        x_float=x_float, y_float=y_float)
 
             if action == "down":
                 self._button_pressed = True
@@ -167,8 +233,9 @@ class MouseClickNode(ActionNode):
 
         if self._actual_duration is None:
             self._actual_duration = get_random_duration(duration, duration_random)
+        x_float, y_float = self._get_float_range()
         context.execute_mouse_click(button, position, action, self._actual_duration,
-                                    x_float=self.x_float, y_float=self.y_float)
+                                    x_float=x_float, y_float=y_float)
 
         if action == "down":
             self._button_pressed = True
@@ -206,6 +273,7 @@ class MouseClickNode(ActionNode):
     def reset(self, reset_counters: bool = True) -> None:
         self._release_button()
         self._context = None
+        self._no_size_logged = False
         super().reset(reset_counters=reset_counters)
 
     @classmethod
@@ -216,8 +284,9 @@ class MouseClickNode(ActionNode):
         node.position = _ensure_tuple_position(config.get("position", None))
         node.action = config.get("action", "press")
         node.duration = config.get_int("duration", 100)
-        node.use_blackboard = config.get_bool("use_blackboard", False)
-        node.position_key = config.get("position_key", "last_detection_position")
+        node.position_mode = get_click_position_mode(config)
+        node.position_key = config.get("position_key", "")
+        node.random_percent = config.get_int("random_percent", 0)
         node.click_count = config.get_int("click_count", 1)
         node.click_interval = config.get_int("click_interval", 100)
         node.duration_random = config.get_int("duration_random", 0)
