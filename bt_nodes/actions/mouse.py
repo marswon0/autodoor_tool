@@ -27,18 +27,31 @@ def _ensure_tuple_position(value):
 CLICK_RANDOM_PERCENT_MAX = 90
 
 
-def get_click_position_mode(config) -> str:
-    """点击位置来源：last_detection（最近检测点）/ fixed（固定坐标）/ variable（黑板变量）
+def get_position_mode(config, mode_key: str = "position_mode",
+                      flag_key: str = "use_blackboard", var_key: str = "position_key") -> str:
+    """位置来源：last_detection（最近检测点）/ fixed（固定坐标）/ variable（黑板变量）
 
-    兼容旧节点（未保存 position_mode）：勾选"点击最近检测点"且未填变量名 → 最近检测点；
+    兼容旧节点（未保存 mode_key）：勾选旧的"使用最近检测点"且未填变量名 → 最近检测点；
     勾选且填了变量名 → 黑板变量；未勾选 → 固定坐标
+    鼠标移动节点的终点使用 end_position_mode / use_blackboard_end / position_key_end
     """
-    mode = config.get("position_mode", None)
+    mode = config.get(mode_key, None)
     if mode:
         return mode
-    if config.get_bool("use_blackboard", False):
-        return "variable" if config.get("position_key", "") else "last_detection"
+    if config.get_bool(flag_key, False):
+        return "variable" if config.get(var_key, "") else "last_detection"
     return "fixed"
+
+
+def _get_detection_position(context) -> Optional[Tuple[int, int]]:
+    """最近检测点 + 检测节点的坐标偏移"""
+    position = _ensure_tuple_position(context.blackboard.get(_get_default_position_key()))
+    if position is None:
+        return None
+    offset = context.blackboard.get("last_detection_offset")
+    if not (isinstance(offset, (list, tuple)) and len(offset) >= 2):
+        offset = (0, 0)
+    return (position[0] + int(offset[0]), position[1] + int(offset[1]))
 
 
 class MouseClickNode(ActionNode):
@@ -50,7 +63,7 @@ class MouseClickNode(ActionNode):
         self.position: Optional[Tuple[int, int]] = _ensure_tuple_position(self.config.get("position", None))
         self.action = self.config.get("action", "press")
         self.duration = self.config.get_int("duration", 100)
-        self.position_mode = get_click_position_mode(self.config)
+        self.position_mode = get_position_mode(self.config)
         self.position_key = self.config.get("position_key", "")
         self.random_percent = self.config.get_int("random_percent", 0)
         self.click_count = self.config.get_int("click_count", 1)
@@ -73,7 +86,7 @@ class MouseClickNode(ActionNode):
         try:
             self._context = context
             click_position = self._get_position(context)
-            if click_position is None and get_click_position_mode(self.config) != "fixed":
+            if click_position is None and get_position_mode(self.config) != "fixed":
                 self._release_button()
                 LogManager.instance().log_failure(
                     node_type="鼠标点击节点",
@@ -112,7 +125,7 @@ class MouseClickNode(ActionNode):
             return NodeStatus.FAILURE
 
     def _get_position(self, context) -> Optional[Tuple[int, int]]:
-        mode = get_click_position_mode(self.config)
+        mode = get_position_mode(self.config)
         if mode == "last_detection":
             return self._get_detection_click_position(context)
         if mode == "variable":
@@ -122,7 +135,7 @@ class MouseClickNode(ActionNode):
 
     def _get_detection_click_position(self, context) -> Optional[Tuple[int, int]]:
         """最近检测点 + 检测节点的坐标偏移 + 检测尺寸内的随机点（每次点击重新随机）"""
-        position = _ensure_tuple_position(context.blackboard.get(_get_default_position_key()))
+        position = _get_detection_position(context)
         if position is None:
             return None
 
@@ -144,14 +157,11 @@ class MouseClickNode(ActionNode):
                     message="最近检测无尺寸信息（如颜色/文字检测），随机点击范围不生效，点击检测点本身"
                 )
 
-        offset = context.blackboard.get("last_detection_offset")
-        if not (isinstance(offset, (list, tuple)) and len(offset) >= 2):
-            offset = (0, 0)
-        return (position[0] + int(offset[0]) + dx, position[1] + int(offset[1]) + dy)
+        return (position[0] + dx, position[1] + dy)
 
     def _get_float_range(self) -> Tuple[int, int]:
         """±px 随机范围；最近检测点模式改用百分比随机，不叠加 ±px"""
-        if get_click_position_mode(self.config) == "last_detection":
+        if get_position_mode(self.config) == "last_detection":
             return (0, 0)
         return (self.config.get_int("x_float", 0), self.config.get_int("y_float", 0))
 
@@ -284,7 +294,7 @@ class MouseClickNode(ActionNode):
         node.position = _ensure_tuple_position(config.get("position", None))
         node.action = config.get("action", "press")
         node.duration = config.get_int("duration", 100)
-        node.position_mode = get_click_position_mode(config)
+        node.position_mode = get_position_mode(config)
         node.position_key = config.get("position_key", "")
         node.random_percent = config.get_int("random_percent", 0)
         node.click_count = config.get_int("click_count", 1)
@@ -302,8 +312,8 @@ class MouseMoveNode(ActionNode):
     def __init__(self, node_id: str = None, config: NodeConfig = None):
         super().__init__(node_id, config)
         self.position: Tuple[int, int] = _ensure_tuple_position(self.config.get("position", (0, 0))) or (0, 0)
-        self.use_blackboard = self.config.get_bool("use_blackboard", False)
-        self.position_key = self.config.get("position_key", _get_default_position_key())
+        self.position_mode = get_position_mode(self.config)
+        self.position_key = self.config.get("position_key", "")
         self.move_type = self.config.get("move_type", "移动")
         self.drag_button = self.config.get("drag_button", "left")
         self.end_position: Optional[Tuple[int, int]] = _ensure_tuple_position(self.config.get("end_position", None))
@@ -316,7 +326,7 @@ class MouseMoveNode(ActionNode):
                 self.offset = (0, 0)
         else:
             self.offset = (0, 0)
-        self.use_blackboard_end = self.config.get_bool("use_blackboard_end", False)
+        self.end_position_mode = self._get_end_mode()
         self.position_key_end = self.config.get("position_key_end", "")
         self.move_duration = self.config.get_int("move_duration", 0)
         self.move_duration_random = self.config.get_int("move_duration_random", 0)
@@ -333,11 +343,18 @@ class MouseMoveNode(ActionNode):
                 LogManager.instance().log_failure(
                     node_type="鼠标移动节点",
                     node_name=self.name,
-                    reason="未指定起点位置"
+                    reason="未指定起点位置" if get_position_mode(self.config) == "fixed" else "黑板中没有可用的起点位置"
                 )
                 return NodeStatus.FAILURE
 
             end_pos = self._get_end_position(context, start_pos)
+            if end_pos is None and not self.config.get_bool("relative", False) and self._get_end_mode() != "fixed":
+                LogManager.instance().log_failure(
+                    node_type="鼠标移动节点",
+                    node_name=self.name,
+                    reason="黑板中没有可用的终点位置"
+                )
+                return NodeStatus.FAILURE
 
             move_type = self.config.get("move_type", "移动")
             if move_type == "拖拽":
@@ -360,12 +377,16 @@ class MouseMoveNode(ActionNode):
             return NodeStatus.FAILURE
 
     def _get_start_position(self, context) -> Optional[Tuple[int, int]]:
-        if self.config.get_bool("use_blackboard", False):
+        mode = get_position_mode(self.config)
+        if mode == "last_detection":
+            return _get_detection_position(context)
+        if mode == "variable":
             position_key = self.config.get("position_key", "") or _get_default_position_key()
-            bb_position = context.blackboard.get(position_key)
-            if bb_position:
-                return _ensure_tuple_position(bb_position)
+            return _ensure_tuple_position(context.blackboard.get(position_key))
         return _ensure_tuple_position(self.config.get("position", (0, 0)))
+
+    def _get_end_mode(self) -> str:
+        return get_position_mode(self.config, "end_position_mode", "use_blackboard_end", "position_key_end")
 
     def _get_end_position(self, context, start_pos: Tuple[int, int]) -> Optional[Tuple[int, int]]:
         if self.config.get_bool("relative", False):
@@ -374,12 +395,12 @@ class MouseMoveNode(ActionNode):
                 return (start_pos[0] + int(offset[0]), start_pos[1] + int(offset[1]))
             return start_pos
 
-        if self.config.get_bool("use_blackboard_end", False):
-            position_key_end = self.config.get("position_key_end", "")
-            bb_position = context.blackboard.get(position_key_end)
-            if bb_position:
-                return _ensure_tuple_position(bb_position)
-
+        mode = self._get_end_mode()
+        if mode == "last_detection":
+            return _get_detection_position(context)
+        if mode == "variable":
+            position_key_end = self.config.get("position_key_end", "") or _get_default_position_key()
+            return _ensure_tuple_position(context.blackboard.get(position_key_end))
         return _ensure_tuple_position(self.config.get("end_position", None))
 
     def _smoothstep(self, t: float) -> float:
@@ -509,8 +530,8 @@ class MouseMoveNode(ActionNode):
         config = NodeConfig.from_dict(data.get("config", {}))
         node = cls(node_id=data.get("id"), config=config)
         node.position = _ensure_tuple_position(config.get("position", (0, 0))) or (0, 0)
-        node.use_blackboard = config.get_bool("use_blackboard", False)
-        node.position_key = config.get("position_key", "last_detection_position")
+        node.position_mode = get_position_mode(config)
+        node.position_key = config.get("position_key", "")
         node.move_type = config.get("move_type", "移动")
         node.drag_button = config.get("drag_button", "left")
         node.end_position = _ensure_tuple_position(config.get("end_position", None))
@@ -523,7 +544,7 @@ class MouseMoveNode(ActionNode):
                 node.offset = (0, 0)
         else:
             node.offset = (0, 0)
-        node.use_blackboard_end = config.get_bool("use_blackboard_end", False)
+        node.end_position_mode = node._get_end_mode()
         node.position_key_end = config.get("position_key_end", "")
         node.move_duration = config.get_int("move_duration", 0)
         node.move_duration_random = config.get_int("move_duration_random", 0)

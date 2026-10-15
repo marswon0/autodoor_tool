@@ -774,6 +774,11 @@ class BehaviorTreeEditor(ctk.CTkFrame):
             node_config = {
                 "position_mode": "last_detection"
             }
+        elif node_type == "MouseMoveNode":
+            node_config = {
+                "position_mode": "last_detection",
+                "end_position_mode": "fixed"
+            }
         elif node_type == "ImageConditionNode":
             node_config = {
                 "retry_count": 3

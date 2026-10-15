@@ -14,15 +14,16 @@ from bt_utils.log_manager import LogManager
 def _display_config_value(config_data: Dict[str, Any], key: str, value: Any) -> Any:
     """兼容旧节点（与节点运行时逻辑一致）：
     区域选择方式：旧值 dynamic 按全屏检测显示；未保存区域选择方式但已框选检测区域时按固定区域显示
-    点击位置来源：未保存时按旧的"点击最近检测点"勾选框与位置变量名推断"""
+    点击/移动位置来源：未保存时按旧的"使用最近检测点"勾选框与位置变量名推断"""
     if key == "region_mode":
         if value == "dynamic":
             return "full_screen"
         if value is None and config_data.get("region"):
             return "fixed"
-    if key == "position_mode" and value is None:
-        if config_data.get("use_blackboard") in (True, "true", "True", 1, "1"):
-            return "variable" if config_data.get("position_key") else "last_detection"
+    if key in ("position_mode", "end_position_mode") and value is None:
+        flag_key, var_key = ("use_blackboard", "position_key") if key == "position_mode" else ("use_blackboard_end", "position_key_end")
+        if config_data.get(flag_key) in (True, "true", "True", 1, "1"):
+            return "variable" if config_data.get(var_key) else "last_detection"
         return "fixed"
     return value
 
@@ -151,16 +152,16 @@ NODE_CONFIG_SCHEMAS = {
         {"key": "y_float", "label": "Y坐标随机范围(±px)", "type": "number", "min": 0, "default": 0, "hide_if": {"field": "position_mode", "value": "last_detection"}},
     ],
     "MouseMoveNode": [
-        {"key": "position", "label": "起点位置", "type": "position"},
-        {"key": "use_blackboard", "label": "起点使用最近检测点", "type": "bool", "default": False},
-        {"key": "position_key", "label": "起点黑板变量名", "type": "text", "default": ""},
+        {"key": "position_mode", "label": "起点位置来源", "type": "select", "options": ["last_detection", "fixed", "variable"], "display_names": {"last_detection": "最近检测点", "fixed": "固定坐标", "variable": "黑板变量"}, "default": "last_detection"},
+        {"key": "position", "label": "起点位置", "type": "position", "hide_if": {"field": "position_mode", "value": ["last_detection", "variable"]}},
+        {"key": "position_key", "label": "起点黑板变量名", "type": "text", "default": "", "hide_if": {"field": "position_mode", "value": ["last_detection", "fixed"]}},
         {"key": "move_type", "label": "操作类型", "type": "select", "options": ["移动", "拖拽"], "default": "移动"},
         {"key": "drag_button", "label": "拖拽按键", "type": "select", "options": ["left", "right", "middle"], "default": "left", "hide_if": {"field": "move_type", "value": "移动"}},
         {"key": "relative", "label": "增量移动", "type": "bool", "default": False},
         {"key": "offset", "label": "增量值", "type": "offset", "hide_if": {"field": "relative", "value": False}},
-        {"key": "end_position", "label": "终点", "type": "position", "hide_if": {"field": "relative", "value": True}},
-        {"key": "use_blackboard_end", "label": "终点使用最近检测点", "type": "bool", "default": False, "hide_if": {"field": "relative", "value": True}},
-        {"key": "position_key_end", "label": "终点黑板变量名", "type": "text", "default": "", "hide_if": {"field": "relative", "value": True}},
+        {"key": "end_position_mode", "label": "终点位置来源", "type": "select", "options": ["last_detection", "fixed", "variable"], "display_names": {"last_detection": "最近检测点", "fixed": "固定坐标", "variable": "黑板变量"}, "default": "fixed", "hide_if": {"field": "relative", "value": True}},
+        {"key": "end_position", "label": "终点", "type": "position", "hide_if": [{"field": "relative", "value": True}, {"field": "end_position_mode", "value": ["last_detection", "variable"]}]},
+        {"key": "position_key_end", "label": "终点黑板变量名", "type": "text", "default": "", "hide_if": [{"field": "relative", "value": True}, {"field": "end_position_mode", "value": ["last_detection", "fixed"]}]},
         {"key": "move_duration", "label": "移动时长(ms)", "type": "number", "default": 0},
         {"key": "move_duration_random", "label": "移动时长随机范围(±ms)", "type": "number", "min": 0, "default": 0},
         {"key": "x_float", "label": "X坐标随机范围(±px)", "type": "number", "min": 0, "default": 0},
