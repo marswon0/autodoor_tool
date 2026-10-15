@@ -317,7 +317,7 @@ class MouseMoveNode(ActionNode):
         self.move_type = self.config.get("move_type", "移动")
         self.drag_button = self.config.get("drag_button", "left")
         self.end_position: Optional[Tuple[int, int]] = _ensure_tuple_position(self.config.get("end_position", None))
-        self.relative = self.config.get_bool("relative", False)
+        self.relative = self._get_end_mode() == "relative"
         offset = self.config.get("offset", None)
         if offset is not None:
             if isinstance(offset, (list, tuple)) and len(offset) >= 2:
@@ -348,7 +348,7 @@ class MouseMoveNode(ActionNode):
                 return NodeStatus.FAILURE
 
             end_pos = self._get_end_position(context, start_pos)
-            if end_pos is None and not self.config.get_bool("relative", False) and self._get_end_mode() != "fixed":
+            if end_pos is None and self._get_end_mode() != "fixed":
                 LogManager.instance().log_failure(
                     node_type="鼠标移动节点",
                     node_name=self.name,
@@ -386,16 +386,21 @@ class MouseMoveNode(ActionNode):
         return _ensure_tuple_position(self.config.get("position", (0, 0)))
 
     def _get_end_mode(self) -> str:
+        """终点位置来源：在起点三种来源之外多一种 relative（起点+偏移）
+
+        兼容旧节点（未保存 end_position_mode）：勾选了旧的"增量移动"→ 起点+偏移
+        """
+        if not self.config.get("end_position_mode", None) and self.config.get_bool("relative", False):
+            return "relative"
         return get_position_mode(self.config, "end_position_mode", "use_blackboard_end", "position_key_end")
 
     def _get_end_position(self, context, start_pos: Tuple[int, int]) -> Optional[Tuple[int, int]]:
-        if self.config.get_bool("relative", False):
+        mode = self._get_end_mode()
+        if mode == "relative":
             offset = self.config.get("offset", None)
             if offset is not None and isinstance(offset, (list, tuple)) and len(offset) >= 2:
                 return (start_pos[0] + int(offset[0]), start_pos[1] + int(offset[1]))
             return start_pos
-
-        mode = self._get_end_mode()
         if mode == "last_detection":
             return _get_detection_position(context)
         if mode == "variable":
@@ -535,7 +540,7 @@ class MouseMoveNode(ActionNode):
         node.move_type = config.get("move_type", "移动")
         node.drag_button = config.get("drag_button", "left")
         node.end_position = _ensure_tuple_position(config.get("end_position", None))
-        node.relative = config.get_bool("relative", False)
+        node.relative = node._get_end_mode() == "relative"
         offset = config.get("offset", None)
         if offset is not None:
             if isinstance(offset, (list, tuple)) and len(offset) >= 2:

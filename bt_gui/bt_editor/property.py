@@ -14,12 +14,15 @@ from bt_utils.log_manager import LogManager
 def _display_config_value(config_data: Dict[str, Any], key: str, value: Any) -> Any:
     """兼容旧节点（与节点运行时逻辑一致）：
     区域选择方式：旧值 dynamic 按全屏检测显示；未保存区域选择方式但已框选检测区域时按固定区域显示
-    点击/移动位置来源：未保存时按旧的"使用最近检测点"勾选框与位置变量名推断"""
+    点击/移动位置来源：未保存时按旧的"使用最近检测点"勾选框与位置变量名推断；
+    移动终点：旧的"增量移动"勾选时按"起点+偏移"显示"""
     if key == "region_mode":
         if value == "dynamic":
             return "full_screen"
         if value is None and config_data.get("region"):
             return "fixed"
+    if key == "end_position_mode" and value is None and config_data.get("relative") in (True, "true", "True", 1, "1"):
+        return "relative"
     if key in ("position_mode", "end_position_mode") and value is None:
         flag_key, var_key = ("use_blackboard", "position_key") if key == "position_mode" else ("use_blackboard_end", "position_key_end")
         if config_data.get(flag_key) in (True, "true", "True", 1, "1"):
@@ -28,34 +31,34 @@ def _display_config_value(config_data: Dict[str, Any], key: str, value: Any) -> 
     return value
 
 
-# 区域选择方式相关字段（OCR/图像/颜色/数字/文本提取节点共用）
+# 区域选择方式相关字段（OCR/图像/颜色/数字/文本提取节点共用，统一归入"检测区域"分组）
 _REGION_FIELDS = [
-    {"key": "region_mode", "label": "区域选择方式", "type": "select", "options": ["full_screen", "fixed", "anchored"], "display_names": {"full_screen": "全屏检测", "fixed": "固定区域检测", "anchored": "锚点周边检测"}, "default": "full_screen"},
-    {"key": "region", "label": "检测区域", "type": "region", "hide_if": {"field": "region_mode", "value": ["full_screen", "anchored"]}},
-    {"key": "anchor_blackboard_key", "label": "从黑板变量读取锚点坐标", "type": "text", "default": "last_detection_position", "hide_if": {"field": "region_mode", "value": ["full_screen", "fixed"]}},
-    {"key": "region_offset", "label": "区域偏移量", "type": "region_offset", "default": [-50, -50, 50, 50], "hide_if": {"field": "region_mode", "value": ["full_screen", "fixed"]}},
+    {"key": "region_mode", "label": "选择方式", "type": "select", "options": ["full_screen", "fixed", "anchored"], "display_names": {"full_screen": "全屏检测", "fixed": "固定区域检测", "anchored": "锚点周边检测"}, "default": "full_screen", "section": "检测区域"},
+    {"key": "region", "label": "区域", "type": "region", "hide_if": {"field": "region_mode", "value": ["full_screen", "anchored"]}, "section": "检测区域"},
+    {"key": "anchor_blackboard_key", "label": "锚点变量名", "type": "text", "default": "last_detection_position", "hide_if": {"field": "region_mode", "value": ["full_screen", "fixed"]}, "section": "检测区域"},
+    {"key": "region_offset", "label": "区域偏移量", "type": "region_offset", "default": [-50, -50, 50, 50], "hide_if": {"field": "region_mode", "value": ["full_screen", "fixed"]}, "section": "检测区域"},
 ]
 
 
 NODE_CONFIG_SCHEMAS = {
     "OCRConditionNode": [
         *_REGION_FIELDS,
-        {"key": "keyword_source", "label": "关键词来源", "type": "select", "options": ["固定文本", "黑板变量"], "default": "固定文本"},
-        {"key": "keywords", "label": "关键词", "type": "text", "hide_if": {"field": "keyword_source", "value": "黑板变量"}},
-        {"key": "keyword_variable", "label": "黑板变量名", "type": "text", "default": "", "hide_if": {"field": "keyword_source", "value": "固定文本"}},
-        {"key": "preprocess_mode", "label": "图像预处理", "type": "select", "options": ["默认", "复杂色彩", "自适应", "自动调优"], "default": "默认"},
-        {"key": "search_direction", "label": "识别起点", "type": "select", "options": ["左上", "右上", "左下", "右下"], "default": "左上"},
-        {"key": "position_key", "label": "保存结果至黑板变量", "type": "text", "default": ""},
-        {"key": "offset", "label": "坐标偏移", "type": "offset"},
+        {"key": "keyword_source", "label": "关键词来源", "type": "select", "options": ["固定文本", "黑板变量"], "default": "固定文本", "section": "识别内容"},
+        {"key": "keywords", "label": "关键词", "type": "text", "hide_if": {"field": "keyword_source", "value": "黑板变量"}, "section": "识别内容"},
+        {"key": "keyword_variable", "label": "黑板变量名", "type": "text", "default": "", "hide_if": {"field": "keyword_source", "value": "固定文本"}, "section": "识别内容"},
+        {"key": "preprocess_mode", "label": "图像预处理", "type": "select", "options": ["默认", "复杂色彩", "自适应", "自动调优"], "default": "默认", "section": "识别方式"},
+        {"key": "search_direction", "label": "识别起点", "type": "select", "options": ["左上", "右上", "左下", "右下"], "default": "左上", "section": "识别方式"},
+        {"key": "position_key", "label": "保存至黑板变量", "type": "text", "default": "", "section": "结果输出"},
+        {"key": "offset", "label": "坐标偏移", "type": "offset", "section": "结果输出"},
     ],
     "ImageConditionNode": [
         *_REGION_FIELDS,
-        {"key": "template_path", "label": "模板路径", "type": "screenshot", "width": 120, "filetypes": [("图像文件", "*.png *.jpg *.jpeg *.bmp"), ("所有文件", "*.*")]},
-        {"key": "threshold", "label": "形状阈值(%)", "type": "number", "min": 0, "max": 100, "default": 80},
-        {"key": "color_check", "label": "颜色校验", "type": "bool", "default": False},
-        {"key": "color_threshold", "label": "颜色阈值(%)", "type": "number", "min": 0, "max": 100, "default": 80, "hide_if": {"field": "color_check", "value": False}},
-        {"key": "position_key", "label": "保存结果至黑板变量", "type": "text", "default": ""},
-        {"key": "offset", "label": "坐标偏移", "type": "offset"},
+        {"key": "template_path", "label": "模板路径", "type": "screenshot", "width": 120, "filetypes": [("图像文件", "*.png *.jpg *.jpeg *.bmp"), ("所有文件", "*.*")], "section": "模板匹配"},
+        {"key": "threshold", "label": "形状阈值(%)", "type": "number", "min": 0, "max": 100, "default": 80, "section": "模板匹配"},
+        {"key": "color_check", "label": "颜色校验", "type": "bool", "default": False, "section": "模板匹配"},
+        {"key": "color_threshold", "label": "颜色阈值(%)", "type": "number", "min": 0, "max": 100, "default": 80, "hide_if": {"field": "color_check", "value": False}, "section": "模板匹配"},
+        {"key": "position_key", "label": "保存至黑板变量", "type": "text", "default": "", "section": "结果输出"},
+        {"key": "offset", "label": "坐标偏移", "type": "offset", "section": "结果输出"},
     ],
     "ColorConditionNode": [
         *_REGION_FIELDS,
@@ -137,35 +140,34 @@ NODE_CONFIG_SCHEMAS = {
         {"key": "duration_random", "label": "时长随机范围(±ms)", "type": "number", "min": 0, "default": 0, "hide_if": {"field": "action", "value": ["down", "up"]}},
     ],
     "MouseClickNode": [
-        {"key": "position_mode", "label": "点击位置来源", "type": "select", "options": ["last_detection", "fixed", "variable"], "display_names": {"last_detection": "最近检测点", "fixed": "固定坐标", "variable": "黑板变量"}, "default": "last_detection"},
-        {"key": "position", "label": "位置", "type": "position", "hide_if": {"field": "position_mode", "value": ["last_detection", "variable"]}},
-        {"key": "position_key", "label": "位置变量名", "type": "text", "default": "", "hide_if": {"field": "position_mode", "value": ["last_detection", "fixed"]}},
-        {"key": "random_percent", "label": "随机点击范围(检测尺寸%)", "type": "number", "min": 0, "max": 90, "default": 0, "hide_if": {"field": "position_mode", "value": ["fixed", "variable"]}},
-        {"key": "button", "label": "按钮", "type": "select", "options": ["left", "right", "middle"], "default": "left"},
-        {"key": "action", "label": "动作", "type": "select", "options": ["press", "down", "up"], "default": "press"},
-        {"key": "duration", "label": "按住时长(ms)", "type": "number", "default": 100, "hide_if": {"field": "action", "value": ["down", "up"]}},
-        {"key": "duration_random", "label": "时长随机范围(±ms)", "type": "number", "min": 0, "default": 0, "hide_if": {"field": "action", "value": ["down", "up"]}},
-        {"key": "click_count", "label": "点击次数(-1无限)", "type": "number", "min": -1, "max": 10, "default": 1},
-        {"key": "click_interval", "label": "点击间隔(ms)", "type": "number", "default": 100},
-        {"key": "click_interval_random", "label": "间隔随机范围(±ms)", "type": "number", "min": 0, "default": 0},
-        {"key": "x_float", "label": "X坐标随机范围(±px)", "type": "number", "min": 0, "default": 0, "hide_if": {"field": "position_mode", "value": "last_detection"}},
-        {"key": "y_float", "label": "Y坐标随机范围(±px)", "type": "number", "min": 0, "default": 0, "hide_if": {"field": "position_mode", "value": "last_detection"}},
+        {"key": "position_mode", "label": "位置来源", "type": "select", "options": ["last_detection", "fixed", "variable"], "display_names": {"last_detection": "最近检测点", "fixed": "固定坐标", "variable": "黑板变量"}, "default": "last_detection", "section": "点击位置"},
+        {"key": "position", "label": "位置", "type": "position", "hide_if": {"field": "position_mode", "value": ["last_detection", "variable"]}, "section": "点击位置"},
+        {"key": "position_key", "label": "黑板变量名", "type": "text", "default": "", "hide_if": {"field": "position_mode", "value": ["last_detection", "fixed"]}, "section": "点击位置"},
+        {"key": "button", "label": "按钮", "type": "select", "options": ["left", "right", "middle"], "default": "left", "section": "点击方式"},
+        {"key": "action", "label": "动作", "type": "select", "options": ["press", "down", "up"], "default": "press", "section": "点击方式"},
+        {"key": "duration", "label": "按住时长(ms)", "type": "number", "default": 100, "hide_if": {"field": "action", "value": ["down", "up"]}, "section": "点击方式"},
+        {"key": "click_count", "label": "点击次数(-1无限)", "type": "number", "min": -1, "max": 10, "default": 1, "section": "点击方式"},
+        {"key": "click_interval", "label": "点击间隔(ms)", "type": "number", "default": 100, "section": "点击方式"},
+        {"key": "random_percent", "label": "随机点击范围(检测尺寸%)", "type": "number", "min": 0, "max": 90, "default": 0, "hide_if": {"field": "position_mode", "value": ["fixed", "variable"]}, "section": "随机范围"},
+        {"key": "duration_random", "label": "时长随机范围(±ms)", "type": "number", "min": 0, "default": 0, "hide_if": {"field": "action", "value": ["down", "up"]}, "section": "随机范围"},
+        {"key": "click_interval_random", "label": "间隔随机范围(±ms)", "type": "number", "min": 0, "default": 0, "section": "随机范围"},
+        {"key": "x_float", "label": "X坐标随机范围(±px)", "type": "number", "min": 0, "default": 0, "hide_if": {"field": "position_mode", "value": "last_detection"}, "section": "随机范围"},
+        {"key": "y_float", "label": "Y坐标随机范围(±px)", "type": "number", "min": 0, "default": 0, "hide_if": {"field": "position_mode", "value": "last_detection"}, "section": "随机范围"},
     ],
     "MouseMoveNode": [
-        {"key": "position_mode", "label": "起点位置来源", "type": "select", "options": ["last_detection", "fixed", "variable"], "display_names": {"last_detection": "最近检测点", "fixed": "固定坐标", "variable": "黑板变量"}, "default": "last_detection"},
-        {"key": "position", "label": "起点位置", "type": "position", "hide_if": {"field": "position_mode", "value": ["last_detection", "variable"]}},
-        {"key": "position_key", "label": "起点黑板变量名", "type": "text", "default": "", "hide_if": {"field": "position_mode", "value": ["last_detection", "fixed"]}},
-        {"key": "move_type", "label": "操作类型", "type": "select", "options": ["移动", "拖拽"], "default": "移动"},
-        {"key": "drag_button", "label": "拖拽按键", "type": "select", "options": ["left", "right", "middle"], "default": "left", "hide_if": {"field": "move_type", "value": "移动"}},
-        {"key": "relative", "label": "增量移动", "type": "bool", "default": False},
-        {"key": "offset", "label": "增量值", "type": "offset", "hide_if": {"field": "relative", "value": False}},
-        {"key": "end_position_mode", "label": "终点位置来源", "type": "select", "options": ["last_detection", "fixed", "variable"], "display_names": {"last_detection": "最近检测点", "fixed": "固定坐标", "variable": "黑板变量"}, "default": "fixed", "hide_if": {"field": "relative", "value": True}},
-        {"key": "end_position", "label": "终点", "type": "position", "hide_if": [{"field": "relative", "value": True}, {"field": "end_position_mode", "value": ["last_detection", "variable"]}]},
-        {"key": "position_key_end", "label": "终点黑板变量名", "type": "text", "default": "", "hide_if": [{"field": "relative", "value": True}, {"field": "end_position_mode", "value": ["last_detection", "fixed"]}]},
-        {"key": "move_duration", "label": "移动时长(ms)", "type": "number", "default": 0},
-        {"key": "move_duration_random", "label": "移动时长随机范围(±ms)", "type": "number", "min": 0, "default": 0},
-        {"key": "x_float", "label": "X坐标随机范围(±px)", "type": "number", "min": 0, "default": 0},
-        {"key": "y_float", "label": "Y坐标随机范围(±px)", "type": "number", "min": 0, "default": 0},
+        {"key": "position_mode", "label": "位置来源", "type": "select", "options": ["last_detection", "fixed", "variable"], "display_names": {"last_detection": "最近检测点", "fixed": "固定坐标", "variable": "黑板变量"}, "default": "last_detection", "section": "起点位置"},
+        {"key": "position", "label": "位置", "type": "position", "hide_if": {"field": "position_mode", "value": ["last_detection", "variable"]}, "section": "起点位置"},
+        {"key": "position_key", "label": "黑板变量名", "type": "text", "default": "", "hide_if": {"field": "position_mode", "value": ["last_detection", "fixed"]}, "section": "起点位置"},
+        {"key": "end_position_mode", "label": "位置来源", "type": "select", "options": ["last_detection", "fixed", "variable", "relative"], "display_names": {"last_detection": "最近检测点", "fixed": "固定坐标", "variable": "黑板变量", "relative": "起点+偏移"}, "default": "fixed", "section": "终点位置"},
+        {"key": "end_position", "label": "位置", "type": "position", "hide_if": {"field": "end_position_mode", "value": ["last_detection", "variable", "relative"]}, "section": "终点位置"},
+        {"key": "position_key_end", "label": "黑板变量名", "type": "text", "default": "", "hide_if": {"field": "end_position_mode", "value": ["last_detection", "fixed", "relative"]}, "section": "终点位置"},
+        {"key": "offset", "label": "偏移量(x, y)", "type": "offset", "hide_if": {"field": "end_position_mode", "value": ["last_detection", "fixed", "variable"]}, "section": "终点位置"},
+        {"key": "move_type", "label": "操作类型", "type": "select", "options": ["移动", "拖拽"], "default": "移动", "section": "移动方式"},
+        {"key": "drag_button", "label": "拖拽按键", "type": "select", "options": ["left", "right", "middle"], "default": "left", "hide_if": {"field": "move_type", "value": "移动"}, "section": "移动方式"},
+        {"key": "move_duration", "label": "移动时长(ms)", "type": "number", "default": 0, "section": "移动方式"},
+        {"key": "move_duration_random", "label": "移动时长随机范围(±ms)", "type": "number", "min": 0, "default": 0, "section": "随机范围"},
+        {"key": "x_float", "label": "X坐标随机范围(±px)", "type": "number", "min": 0, "default": 0, "section": "随机范围"},
+        {"key": "y_float", "label": "Y坐标随机范围(±px)", "type": "number", "min": 0, "default": 0, "section": "随机范围"},
     ],
     "MouseScrollNode": [
         {"key": "distance", "label": "滚动距离", "type": "number", "default": 5},
@@ -2871,19 +2873,26 @@ class PropertyPanel(ctk.CTkFrame):
                     config_data.pop("value_type", None)
                     config_data.pop("source_variable", None)
 
-                self._create_section_title("配置参数")
-                self.config_fields_frame = ctk.CTkFrame(self.content_frame, fg_color="transparent")
-                self.config_fields_frame.pack(fill="x")
-
                 if isinstance(schema, dict):
                     field_list = [{"key": k, **v} for k, v in schema.items()]
                 else:
                     field_list = schema
 
+                # 按字段的 section 分组（未指定的归入"配置参数"），每组一个标题和独立容器，
+                # 组顺序按 schema 中首次出现的顺序；独立容器保证字段显隐时不会跨组错位
+                section_frames = {}
+                for field in field_list:
+                    section = field.get("section", "配置参数")
+                    if section not in section_frames:
+                        self._create_section_title(section)
+                        frame = ctk.CTkFrame(self.content_frame, fg_color="transparent")
+                        frame.pack(fill="x")
+                        section_frames[section] = frame
+
                 for field in field_list:
                     value = config_data.get(field["key"]) if isinstance(field, dict) and "key" in field else config_data.get(field.get("key"))
                     value = _display_config_value(config_data, field.get("key"), value)
-                    async_steps.append(("config_field", field, value))
+                    async_steps.append(("config_field", field, (value, section_frames[field.get("section", "配置参数")])))
 
             config = node_data.get("config", {})
             if node_type == "SubtreeNode" and isinstance(config, dict) and "_aut_parameter_file" in config:
@@ -2928,7 +2937,8 @@ class PropertyPanel(ctk.CTkFrame):
 
             try:
                 if step_type == "config_field":
-                    self._create_field(data, extra, self.config_fields_frame)
+                    value, frame = extra
+                    self._create_field(data, value, frame)
                 elif step_type == "aut_param":
                     self._create_aut_param_section(data)
                 elif step_type == "preview_section":
