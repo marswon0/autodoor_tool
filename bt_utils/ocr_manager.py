@@ -965,6 +965,59 @@ class OCRManager:
             _logger.error(f"OCR全屏搜索异常: {e}", exc_info=True)
             return False, None, ""
 
+    def search_number_full_screen(self, image: Image.Image,
+                                  extract_mode: str = "无规则",
+                                  extract_pattern: str = "",
+                                  search_direction: str = "top-left") -> Tuple[bool, Optional[float], str, Optional[Tuple[int, int]]]:
+        """全屏识别数字：按文本块逐块识别（同 search_full_screen 第一阶段），避免整图被引擎缩小导致小字丢失
+
+        Args:
+            image: 整屏/整窗口截图
+            extract_mode: 提取模式 (无规则/x/y/自定义)
+            extract_pattern: 自定义提取模式（使用*作为通配符）
+            search_direction: 识别起点 (top-left/top-right/bottom-left/bottom-right)
+
+        Returns:
+            (是否识别成功, 数字值, 所有识别文本, 位置坐标) 元组，与 recognize_number_with_position 相同；
+            位置坐标为 image 内坐标（无需再叠加区域偏移）
+        """
+        try:
+            if not self._available or self._engine is None:
+                return False, None, "", None
+
+            rgb = image.convert("RGB")
+            all_texts = []
+            numbers = {}  # 位置 -> 数字值
+
+            for tx, ty, tx2, ty2 in self._iter_block_crops(rgb):
+                result = self._engine(np.array(rgb.crop((tx, ty, tx2, ty2))))
+                if result is None or result.boxes is None or len(result.boxes) == 0:
+                    continue
+
+                for i, text in enumerate(result.txts):
+                    if not text or i >= len(result.boxes):
+                        continue
+                    all_texts.append(text)
+                    value = self._extract_number(text, extract_mode, extract_pattern)
+                    if value is None:
+                        continue
+                    box = result.boxes[i]
+                    center = (int((box[0][0] + box[2][0]) / 2) + tx,
+                              int((box[0][1] + box[2][1]) / 2) + ty)
+                    numbers.setdefault(center, value)
+
+            all_text = " ".join(all_texts)
+            if not numbers:
+                return False, None, all_text, None
+
+            from bt_utils.direction import sort_positions_by_direction
+            position = sort_positions_by_direction(list(numbers), search_direction)[0]
+            return True, numbers[position], all_text, position
+
+        except Exception as e:
+            _logger.error(f"OCR全屏数字识别异常: {e}", exc_info=True)
+            return False, None, "", None
+
     def _find_text_blocks(self, image: Image.Image) -> list:
         """用 OpenCV 定位图中的文本块，返回外接矩形列表 [(x, y, w, h), ...]
 
