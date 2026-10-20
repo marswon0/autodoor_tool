@@ -36,7 +36,7 @@ _REGION_FIELDS = [
     {"key": "region_mode", "label": "选择方式", "type": "select", "options": ["full_screen", "fixed", "anchored"], "display_names": {"full_screen": "全屏检测", "fixed": "固定区域检测", "anchored": "锚点周边检测"}, "default": "full_screen", "section": "检测区域"},
     {"key": "region", "label": "区域", "type": "region", "hide_if": {"field": "region_mode", "value": ["full_screen", "anchored"]}, "section": "检测区域"},
     {"key": "anchor_blackboard_key", "label": "锚点变量名", "type": "text", "default": "last_detection_position", "hide_if": {"field": "region_mode", "value": ["full_screen", "fixed"]}, "section": "检测区域"},
-    {"key": "region_offset", "label": "区域偏移量", "type": "region_offset", "default": [-50, -50, 50, 50], "hide_if": {"field": "region_mode", "value": ["full_screen", "fixed"]}, "section": "检测区域"},
+    {"key": "region_offset", "label": "检测框范围", "hint": "以锚点为中心画出检测框，只在框内检测。", "type": "region_offset", "default": [-50, -50, 50, 50], "hide_if": {"field": "region_mode", "value": ["full_screen", "fixed"]}, "section": "检测区域"},
 ]
 
 
@@ -49,7 +49,7 @@ NODE_CONFIG_SCHEMAS = {
         {"key": "preprocess_mode", "label": "图像预处理", "type": "select", "options": ["默认", "复杂色彩", "自适应", "自动调优"], "default": "默认", "section": "识别方式"},
         {"key": "search_direction", "label": "识别起点", "type": "select", "options": ["左上", "右上", "左下", "右下"], "default": "左上", "section": "识别方式"},
         {"key": "position_key", "label": "保存至黑板变量", "type": "text", "default": "", "section": "结果输出"},
-        {"key": "offset", "label": "坐标偏移", "type": "offset", "section": "结果输出"},
+        {"key": "offset", "label": "点击识别点附近位置(by offset)", "hint": "一般保持 0, 0。目标难识别时使用：先识别旁边的文字或图标，再点过去。", "type": "offset", "section": "结果输出"},
     ],
     "ImageConditionNode": [
         *_REGION_FIELDS,
@@ -58,7 +58,7 @@ NODE_CONFIG_SCHEMAS = {
         {"key": "color_check", "label": "颜色校验", "type": "bool", "default": False, "section": "模板匹配"},
         {"key": "color_threshold", "label": "颜色阈值(%)", "type": "number", "min": 0, "max": 100, "default": 80, "hide_if": {"field": "color_check", "value": False}, "section": "模板匹配"},
         {"key": "position_key", "label": "保存至黑板变量", "type": "text", "default": "", "section": "结果输出"},
-        {"key": "offset", "label": "坐标偏移", "type": "offset", "section": "结果输出"},
+        {"key": "offset", "label": "点击识别点附近位置(by offset)", "hint": "一般保持 0, 0。目标难识别时使用：先识别旁边的文字或图标，再点过去。", "type": "offset", "section": "结果输出"},
     ],
     "ColorConditionNode": [
         *_REGION_FIELDS,
@@ -66,7 +66,7 @@ NODE_CONFIG_SCHEMAS = {
         {"key": "tolerance", "label": "容差", "type": "number", "min": 0, "max": 100, "default": 10},
         {"key": "min_pixels", "label": "最小像素数", "type": "number", "min": 1, "default": 1},
         {"key": "position_key", "label": "保存结果至黑板变量", "type": "text", "default": ""},
-        {"key": "offset", "label": "坐标偏移", "type": "offset"},
+        {"key": "offset", "label": "点击识别点附近位置(by offset)", "hint": "一般保持 0, 0。目标难识别时使用：先识别旁边的文字或图标，再点过去。", "type": "offset"},
     ],
     "NumberConditionNode": [
         *_REGION_FIELDS,
@@ -79,7 +79,7 @@ NODE_CONFIG_SCHEMAS = {
         {"key": "search_direction", "label": "识别起点", "type": "select", "options": ["左上", "右上", "左下", "右下"], "default": "左上"},
         {"key": "value_key", "label": "值变量名", "type": "text", "default": "last_number_value"},
         {"key": "position_key", "label": "保存结果至黑板变量", "type": "text", "default": ""},
-        {"key": "offset", "label": "坐标偏移", "type": "offset"},
+        {"key": "offset", "label": "点击识别点附近位置(by offset)", "hint": "一般保持 0, 0。目标难识别时使用：先识别旁边的文字或图标，再点过去。", "type": "offset"},
     ],
     "VariableConditionNode": {
         "variable_name": {
@@ -146,9 +146,11 @@ NODE_CONFIG_SCHEMAS = {
         {"key": "button", "label": "按钮", "type": "select", "options": ["left", "right", "middle"], "default": "left", "section": "点击方式"},
         {"key": "action", "label": "动作", "type": "select", "options": ["press", "down", "up"], "default": "press", "section": "点击方式"},
         {"key": "duration", "label": "按住时长(ms)", "type": "number", "default": 100, "hide_if": {"field": "action", "value": ["down", "up"]}, "section": "点击方式"},
-        {"key": "click_count", "label": "点击次数(-1无限)", "type": "number", "min": -1, "max": 10, "default": 1, "section": "点击方式"},
+        {"key": "click_count_mode", "label": "次数来源", "type": "select", "options": ["fixed", "variable"], "display_names": {"fixed": "固定次数", "variable": "黑板变量"}, "default": "fixed", "section": "点击方式"},
+        {"key": "click_count", "label": "点击次数(-1无限)", "type": "number", "min": -1, "max": 10, "default": 1, "hide_if": {"field": "click_count_mode", "value": "variable"}, "section": "点击方式"},
+        {"key": "click_count_key", "label": "次数变量名", "hint": "变量值为点击次数，-1为无限。变量不存在或值无效时只点击一次。", "type": "text", "default": "", "hide_if": {"field": "click_count_mode", "value": "fixed"}, "section": "点击方式"},
         {"key": "click_interval", "label": "点击间隔(ms)", "type": "number", "default": 100, "section": "点击方式"},
-        {"key": "random_percent", "label": "随机点击范围(检测尺寸%)", "type": "number", "min": 0, "max": 90, "default": 0, "hide_if": {"field": "position_mode", "value": ["fixed", "variable"]}, "section": "随机范围"},
+        {"key": "random_percent", "label": "随机点击范围(检测尺寸%)", "type": "number", "min": 0, "max": 65, "default": 0, "hide_if": {"field": "position_mode", "value": ["fixed", "variable"]}, "section": "随机范围"},
         {"key": "duration_random", "label": "时长随机范围(±ms)", "type": "number", "min": 0, "default": 0, "hide_if": {"field": "action", "value": ["down", "up"]}, "section": "随机范围"},
         {"key": "click_interval_random", "label": "间隔随机范围(±ms)", "type": "number", "min": 0, "default": 0, "section": "随机范围"},
         {"key": "x_float", "label": "X坐标随机范围(±px)", "type": "number", "min": 0, "default": 0, "hide_if": {"field": "position_mode", "value": "last_detection"}, "section": "随机范围"},
@@ -274,7 +276,7 @@ NODE_CONFIG_SCHEMAS = {
         {"key": "all_text_key", "label": "全部文本变量名", "type": "text", "default": "all_ocr_text", "hide_if": {"field": "save_all_text", "value": False}},
         {"key": "save_position", "label": "保存位置", "type": "bool", "default": True},
         {"key": "position_key", "label": "保存结果至黑板变量", "type": "text", "default": ""},
-        {"key": "offset", "label": "坐标偏移", "type": "offset"},
+        {"key": "offset", "label": "点击识别点附近位置(by offset)", "hint": "一般保持 0, 0。目标难识别时使用：先识别旁边的文字或图标，再点过去。", "type": "offset"},
     ],
     "ParallelNode": [
         {"key": "success_policy", "label": "成功策略", "type": "select", "options": ["require_all", "require_one"], "default": "require_all"},
@@ -3337,11 +3339,35 @@ class PropertyPanel(ctk.CTkFrame):
         if field_widget:
             display_value = value if value is not None else field.get("default")
             field_widget.set_value(display_value)
+            if field.get("hint"):
+                self._add_field_hint(field_widget, field["hint"])
             field_widget.pack(fill="x", pady=Theme.DIMENSIONS['spacing_xs'])
             self.widgets[key] = field_widget
             self.field_containers[key] = container
             
             self._update_single_field_visibility(key, field)
+
+    def _add_field_hint(self, field_widget, hint: str):
+        """字段下方的灰色说明文字（放在字段控件内，随字段一起显示/隐藏）"""
+        hint_label = ctk.CTkLabel(
+            field_widget,
+            text=hint,
+            font=Theme.get_font('xs'),
+            text_color=self._dark_colors['text_muted'],
+            anchor="w",
+            justify="left"
+        )
+        hint_label.pack(fill="x", pady=(Theme.DIMENSIONS['spacing_xs'], 0))
+        # 按字段控件宽度换行（label 自身宽度会随换行变化，绑在 label 上会循环触发）；
+        # 宽度为实际像素，CTkLabel 的 wraplength 会再乘一次显示缩放，需先换算回去
+        def _rewrap(_event=None):
+            width = field_widget.winfo_width()
+            if width <= 1:
+                return
+            wrap = max(int((width - 8) / hint_label._get_widget_scaling()), 50)
+            if hint_label.cget("wraplength") != wrap:
+                hint_label.configure(wraplength=wrap)
+        field_widget.bind("<Configure>", _rewrap, add="+")
 
     def _create_aut_param_section(self, config):
         param_file = config.get("_aut_parameter_file", "")

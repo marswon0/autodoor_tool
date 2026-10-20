@@ -24,7 +24,7 @@ def _ensure_tuple_position(value):
 
 
 # 随机点击范围上限（检测目标尺寸的百分比），保证点击不超出检测图像
-CLICK_RANDOM_PERCENT_MAX = 90
+CLICK_RANDOM_PERCENT_MAX = 65
 
 
 def get_position_mode(config, mode_key: str = "position_mode",
@@ -41,6 +41,24 @@ def get_position_mode(config, mode_key: str = "position_mode",
     if config.get_bool(flag_key, False):
         return "variable" if config.get(var_key, "") else "last_detection"
     return "fixed"
+
+
+def _parse_click_count(value) -> Optional[int]:
+    """有效点击次数：-1（无限）或 ≥1 的整数（兼容 "3"、3.0）；其他返回 None"""
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, str):
+        try:
+            value = float(value.strip())
+        except ValueError:
+            return None
+    if isinstance(value, float):
+        if not value.is_integer():
+            return None
+        value = int(value)
+    if not isinstance(value, int):
+        return None
+    return value if value == -1 or value >= 1 else None
 
 
 def _get_detection_position(context) -> Optional[Tuple[int, int]]:
@@ -73,6 +91,7 @@ class MouseClickNode(ActionNode):
         self.x_float = self.config.get_int("x_float", 0)
         self.y_float = self.config.get_int("y_float", 0)
         self._current_click = 0
+        self._resolved_click_count = 1
         self._last_click_time: Optional[float] = None
         self._actual_interval: Optional[int] = None
         self._actual_duration: Optional[int] = None
@@ -81,6 +100,37 @@ class MouseClickNode(ActionNode):
         self._button_pressed = False
         self._context = None
         self._no_size_logged = False
+
+    def _resolve_click_count(self, context) -> int:
+        """点击次数：固定值或黑板变量（每次开始点击时读取一次）
+
+        变量名未设置、变量不存在或值不是有效次数时只点击一次，并记录日志
+        """
+        if self.config.get("click_count_mode", "fixed") == "variable":
+            var_name = self.config.get("click_count_key", "")
+            if not var_name:
+                reason = "未设置点击次数变量名"
+            elif not context.blackboard.exists(var_name):
+                reason = f"黑板变量 '{var_name}' 不存在"
+            else:
+                value = context.blackboard.get(var_name)
+                count = _parse_click_count(value)
+                if count is not None:
+                    return count
+                reason = f"黑板变量 '{var_name}' 的值 {value!r} 不是有效点击次数"
+        else:
+            value = self.config.get("click_count", 1)
+            count = _parse_click_count(value)
+            if count is not None:
+                return count
+            reason = f"点击次数 {value!r} 无效"
+
+        LogManager.instance().log_info(
+            node_type="鼠标点击节点",
+            node_name=self.name,
+            message=f"{reason}，只点击一次"
+        )
+        return 1
 
     def _execute_action(self, context) -> NodeStatus:
         try:
@@ -99,6 +149,7 @@ class MouseClickNode(ActionNode):
                 self._click_started = True
                 self._current_click = 0
                 self._last_click_time = None
+                self._resolved_click_count = self._resolve_click_count(context)
 
             if self._abort_flag or not context.check_running():
                 self._release_button()
@@ -108,8 +159,7 @@ class MouseClickNode(ActionNode):
                 )
                 return NodeStatus.ABORTED
 
-            click_count = self.config.get_int("click_count", 1)
-            if click_count == -1:
+            if self._resolved_click_count == -1:
                 return self._non_blocking_infinite_click(context, click_position)
             else:
                 return self._non_blocking_finite_click(context, click_position)
@@ -179,7 +229,7 @@ class MouseClickNode(ActionNode):
             if elapsed < self._actual_interval:
                 return NodeStatus.RUNNING
 
-        click_count = self.config.get_int("click_count", 1)
+        click_count = self._resolved_click_count
         if self._current_click < click_count:
             if self._abort_flag or not context.check_running():
                 self._release_button()
