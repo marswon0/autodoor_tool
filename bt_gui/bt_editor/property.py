@@ -194,10 +194,11 @@ NODE_CONFIG_SCHEMAS = {
         "operation": {
             "type": "select",
             "label": "操作",
-            "options": ["set", "increment", "delete"],
+            "options": ["set", "increment", "decrement", "delete"],
             "display_names": {
                 "set": "赋值",
                 "increment": "递增",
+                "decrement": "递减",
                 "delete": "删除"
             },
             "default": "set"
@@ -212,7 +213,7 @@ NODE_CONFIG_SCHEMAS = {
             },
             "default": "constant",
             "hide_if": [
-                {"field": "operation", "value": ["increment", "delete"]}
+                {"field": "operation", "value": ["increment", "decrement", "delete"]}
             ]
         },
         "value": {
@@ -230,7 +231,7 @@ NODE_CONFIG_SCHEMAS = {
             "default": "",
             "hide_if": [
                 {"field": "value_type", "value": "constant"},
-                {"field": "operation", "value": ["increment", "delete"]}
+                {"field": "operation", "value": ["increment", "decrement", "delete"]}
             ]
         },
         "data_type": {
@@ -247,7 +248,7 @@ NODE_CONFIG_SCHEMAS = {
             },
             "default": "str",
             "hide_if": [
-                {"field": "operation", "value": ["increment", "delete"]}
+                {"field": "operation", "value": ["increment", "decrement", "delete"]}
             ]
         }
     },

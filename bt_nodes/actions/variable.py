@@ -96,6 +96,31 @@ class SetVariableNode(ActionNode):
                 )
                 return NodeStatus.FAILURE
 
+        elif operation == "decrement":
+            current = context.blackboard.get(var_name)
+            if current is None:
+                LogManager.instance().log_failure(
+                    node_type="变量节点",
+                    node_name=self.name,
+                    reason=f"变量 '{var_name}' 不存在"
+                )
+                return NodeStatus.FAILURE
+            try:
+                new_value = current - 1
+                context.blackboard.set(var_name, new_value)
+                LogManager.instance().log_success(
+                    node_type="变量节点",
+                    node_name=self.name
+                )
+                return NodeStatus.SUCCESS
+            except TypeError:
+                LogManager.instance().log_failure(
+                    node_type="变量节点",
+                    node_name=self.name,
+                    reason=f"变量 '{var_name}' 的值 {current} 无法递减"
+                )
+                return NodeStatus.FAILURE
+
         elif operation == "delete":
             context.blackboard.delete(var_name)
             LogManager.instance().log_success(

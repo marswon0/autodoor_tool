@@ -79,7 +79,7 @@
 | MouseMoveNode   | 鼠标移动 | position, use\_blackboard, relative（相对移动）, offset, move\_type（instant/linear/smooth）, end\_position, move\_duration |
 | MouseScrollNode | 鼠标滚轮 | distance, clicks, direction（up/down）                                                                                |
 | DelayNode       | 延时等待 | duration\_ms, duration\_random                                                                                      |
-| SetVariableNode | 设置变量 | variable\_name, operation（set/increment/delete）, value, data\_type（str/int/float/bool/auto）                  |
+| SetVariableNode | 设置变量 | variable\_name, operation（set/increment/decrement/delete）, value, data\_type（str/int/float/bool/auto）                  |
 | AlarmNode       | 播放报警 | sound\_file, loop（循环播放）, duration                                                                                   |
 | ScriptNode      | 执行脚本 | script\_path                                                                                                        |
 | CodeNode        | 执行代码 | code\_file                                                                                                          |
