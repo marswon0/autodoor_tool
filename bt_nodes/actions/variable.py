@@ -47,8 +47,23 @@ class SetVariableNode(ActionNode):
                     )
                     return NodeStatus.FAILURE
             else:
-                raw_value = self.config.get("value", "")
-                value = self._parse_value(raw_value)
+                value = self.config.get("value", "")
+            # 未保存数据类型的旧节点按原来的自动识别处理
+            data_type = self.config.get("data_type", "auto")
+            try:
+                if data_type == "auto":
+                    # 来源变量原样复制，只猜测常量文本
+                    if value_type != "variable":
+                        value = self._parse_value(value)
+                else:
+                    value = self._convert_value(value, data_type)
+            except (ValueError, TypeError):
+                LogManager.instance().log_failure(
+                    node_type="变量节点",
+                    node_name=self.name,
+                    reason=f"值 {value!r} 无法转换为 {data_type}"
+                )
+                return NodeStatus.FAILURE
             context.blackboard.set(var_name, value)
             LogManager.instance().log_success(
                 node_type="变量节点",
@@ -96,6 +111,42 @@ class SetVariableNode(ActionNode):
                 reason=f"未知操作: {operation}"
             )
             return NodeStatus.FAILURE
+
+    _TRUE_TEXTS = ("true", "1", "yes", "是")
+    _FALSE_TEXTS = ("false", "0", "no", "否")
+
+    @classmethod
+    def _convert_value(cls, value, data_type: str):
+        """按数据类型转换值，无法转换时抛出 ValueError/TypeError"""
+        if data_type == "str":
+            return value if isinstance(value, str) else str(value)
+        if data_type == "int":
+            if isinstance(value, str):
+                value = value.strip()
+                try:
+                    return int(value)
+                except ValueError:
+                    value = float(value)
+            if isinstance(value, float):
+                # 不静默截断小数，如 "3.5"
+                if not value.is_integer():
+                    raise ValueError(value)
+                return int(value)
+            return int(value)
+        if data_type == "float":
+            return float(value.strip() if isinstance(value, str) else value)
+        if data_type == "bool":
+            if isinstance(value, bool):
+                return value
+            if isinstance(value, (int, float)):
+                return value != 0
+            text = str(value).strip().lower()
+            if text in cls._TRUE_TEXTS:
+                return True
+            if text in cls._FALSE_TEXTS:
+                return False
+            raise ValueError(value)
+        raise ValueError(f"未知数据类型: {data_type}")
 
     @staticmethod
     def _parse_value(raw: str):

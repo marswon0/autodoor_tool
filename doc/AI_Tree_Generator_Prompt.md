@@ -79,7 +79,7 @@
 | MouseMoveNode   | 鼠标移动 | position, use\_blackboard, relative（相对移动）, offset, move\_type（instant/linear/smooth）, end\_position, move\_duration |
 | MouseScrollNode | 鼠标滚轮 | distance, clicks, direction（up/down）                                                                                |
 | DelayNode       | 延时等待 | duration\_ms, duration\_random                                                                                      |
-| SetVariableNode | 设置变量 | variable\_name, variable\_value                                                                                     |
+| SetVariableNode | 设置变量 | variable\_name, operation（set/increment/delete）, value, data\_type（str/int/float/bool/auto）                  |
 | AlarmNode       | 播放报警 | sound\_file, loop（循环播放）, duration                                                                                   |
 | ScriptNode      | 执行脚本 | script\_path                                                                                                        |
 | CodeNode        | 执行代码 | code\_file                                                                                                          |
@@ -155,7 +155,8 @@ ParallelNode (success_policy: require_one)
 
 ```
 SetVariableNode 设置变量：
-SetVariableNode (variable_name: "count", variable_value: 0)
+SetVariableNode (variable_name: "count", value: "0", data_type: "int")
+  └─ 计数、次数等需递增或数值比较的变量用 int；订单号等需保留前导零的用 str
 
 VariableConditionNode 判断变量：
 VariableConditionNode (variable_name: "count", operator: "<", target_value: 10)

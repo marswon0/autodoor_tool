@@ -15,7 +15,10 @@ def _display_config_value(config_data: Dict[str, Any], key: str, value: Any) -> 
     """兼容旧节点（与节点运行时逻辑一致）：
     区域选择方式：旧值 dynamic 按全屏检测显示；未保存区域选择方式但已框选检测区域时按固定区域显示
     点击/移动位置来源：未保存时按旧的"使用最近检测点"勾选框与位置变量名推断；
-    移动终点：旧的"增量移动"勾选时按"起点+偏移"显示"""
+    移动终点：旧的"增量移动"勾选时按"起点+偏移"显示；
+    设变量数据类型：未保存时按旧的自动识别显示"""
+    if key == "data_type" and value is None:
+        return "auto"
     if key == "region_mode":
         if value == "dynamic":
             return "full_screen"
@@ -225,6 +228,23 @@ NODE_CONFIG_SCHEMAS = {
             "default": "",
             "hide_if": [
                 {"field": "value_type", "value": "constant"},
+                {"field": "operation", "value": ["increment", "delete"]}
+            ]
+        },
+        "data_type": {
+            "type": "select",
+            "label": "数据类型",
+            "hint": "赋值前转换为该类型，转换失败时节点失败。自动识别：按 true/false、整数、小数、文本的顺序猜测。",
+            "options": ["str", "int", "float", "bool", "auto"],
+            "display_names": {
+                "str": "str",
+                "int": "int",
+                "float": "float",
+                "bool": "bool",
+                "auto": "自动识别"
+            },
+            "default": "str",
+            "hide_if": [
                 {"field": "operation", "value": ["increment", "delete"]}
             ]
         }

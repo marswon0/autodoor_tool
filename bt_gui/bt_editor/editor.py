@@ -783,6 +783,10 @@ class BehaviorTreeEditor(ctk.CTkFrame):
             node_config = {
                 "retry_count": 3
             }
+        elif node_type == "SetVariableNode":
+            node_config = {
+                "data_type": "str"
+            }
 
         command = AddNodeCommand(
             canvas=self.canvas,
