@@ -104,7 +104,7 @@ class MouseClickNode(ActionNode):
     def _resolve_click_count(self, context) -> int:
         """点击次数：固定值或黑板变量（每次开始点击时读取一次）
 
-        变量名未设置、变量不存在或值不是有效次数时只点击一次，并记录日志
+        次数须为 ≥1 的整数（-1 为无限）；变量名未设置、变量不存在或值无效时不点击，并记录日志
         """
         if self.config.get("click_count_mode", "fixed") == "variable":
             var_name = self.config.get("click_count_key", "")
@@ -128,9 +128,9 @@ class MouseClickNode(ActionNode):
         LogManager.instance().log_info(
             node_type="鼠标点击节点",
             node_name=self.name,
-            message=f"{reason}，只点击一次"
+            message=f"{reason}，不点击"
         )
-        return 1
+        return 0
 
     def _execute_action(self, context) -> NodeStatus:
         try:

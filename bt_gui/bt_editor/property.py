@@ -153,7 +153,7 @@ NODE_CONFIG_SCHEMAS = {
         {"key": "duration", "label": "按住时长(ms)", "type": "number", "default": 100, "hide_if": {"field": "action", "value": ["down", "up"]}, "section": "点击方式"},
         {"key": "click_count_mode", "label": "次数来源", "type": "select", "options": ["fixed", "variable"], "display_names": {"fixed": "固定次数", "variable": "黑板变量"}, "default": "fixed", "section": "点击方式"},
         {"key": "click_count", "label": "点击次数(-1无限)", "type": "number", "min": -1, "max": 10, "default": 1, "hide_if": {"field": "click_count_mode", "value": "variable"}, "section": "点击方式"},
-        {"key": "click_count_key", "label": "次数变量名", "hint": "变量值为点击次数，-1为无限。变量不存在或值无效时只点击一次。", "type": "text", "default": "", "hide_if": {"field": "click_count_mode", "value": "fixed"}, "section": "点击方式"},
+        {"key": "click_count_key", "label": "次数变量名", "hint": "变量值须为≥1的整数，-1为无限。变量不存在或值无效时不点击。", "type": "text", "default": "", "hide_if": {"field": "click_count_mode", "value": "fixed"}, "section": "点击方式"},
         {"key": "click_interval", "label": "点击间隔(ms)", "type": "number", "default": 100, "section": "点击方式"},
         {"key": "random_percent", "label": "随机点击范围(检测尺寸%)", "type": "number", "min": 0, "max": 65, "default": 0, "hide_if": {"field": "position_mode", "value": ["fixed", "variable"]}, "section": "随机范围"},
         {"key": "duration_random", "label": "时长随机范围(±ms)", "type": "number", "min": 0, "default": 0, "hide_if": {"field": "action", "value": ["down", "up"]}, "section": "随机范围"},
